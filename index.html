@@ -320,6 +320,7 @@
     <button class="btn warn admin-only" id="toggleCal">⚙️ הצג/הסתר כיול</button>
     <button class="btn" id="downloadBtn" disabled>💾 הורד תוצאה</button>
     <button class="btn alt" id="resetBtn">🔄 איפוס תמונות</button>
+    <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
     <button class="btn alt admin-only" id="exportCfg">📋 העתק קונפיגורציה</button>
   </div>
 
@@ -520,6 +521,8 @@ function render() {
   tpl.screens.forEach((screen, idx) => {
     if (userImages[idx] && showPreview) {
       drawScreenImage(userImages[idx], screen.corners);
+    } else if (calMode) {
+      drawCalibrationPlaceholder(screen.corners, screen.label);
     } else {
       drawPlaceholder(screen.corners, screen.label);
     }
@@ -527,6 +530,24 @@ function render() {
 }
 
 function drawPlaceholder(corners, labelTxt) {
+  const pts = corners.map(c => ({x: c.x * canvas.width, y: c.y * canvas.height}));
+  ctx.save();
+  // קליפ לפריים - מסך שחור מלא, ללא מסגרת או טקסט
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.clip();
+  
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i=1; i<4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+}
+
+// פלייסהולדר עם מסגרת ותווית - רק במצב כיול כדי שאפשר יהיה לראות את גבולות המסך
+function drawCalibrationPlaceholder(corners, labelTxt) {
   const pts = corners.map(c => ({x: c.x * canvas.width, y: c.y * canvas.height}));
   ctx.save();
   ctx.beginPath();
@@ -558,6 +579,22 @@ function drawScreenImage(img, corners) {
   const STEPS = 60;
   const iw = img.width, ih = img.height;
   
+  // שלב 1: שכבת רקע שחורה על אזור המסך - מסתירה את התמונה שמאחור (סמוטריץ') ומונעת שקיפות
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.moveTo(tl.x, tl.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.lineTo(bl.x, bl.y);
+  ctx.closePath();
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+  
+  // שלב 2: ציור התמונה על השכבה השחורה
   ctx.save();
   for (let i=0; i<STEPS; i++) {
     for (let j=0; j<STEPS; j++) {
@@ -589,8 +626,22 @@ function bilinear(tl,tr,br,bl,u,v){
 
 function drawTriangle(img, sx0,sy0, sx1,sy1, sx2,sy2, p0,p1,p2){
   ctx.save();
+  
+  // הרחבת המשולש בחצי פיקסל החוצה כדי לסגור את הסדקים בין משולשים סמוכים
+  // מחשבים מרכז ודוחפים כל קודקוד החוצה ממנו
+  const cx = (p0.x + p1.x + p2.x) / 3;
+  const cy = (p0.y + p1.y + p2.y) / 3;
+  const expand = (p) => {
+    const dx = p.x - cx, dy = p.y - cy;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.001) return p;
+    const f = (len + 0.5) / len;
+    return { x: cx + dx * f, y: cy + dy * f };
+  };
+  const e0 = expand(p0), e1 = expand(p1), e2 = expand(p2);
+  
   ctx.beginPath();
-  ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y);
+  ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y); ctx.lineTo(e2.x, e2.y);
   ctx.closePath(); ctx.clip();
   const denom = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0);
   if (Math.abs(denom) < 1e-6) { ctx.restore(); return; }
@@ -810,7 +861,74 @@ function tryLogin() {
   }
 }
 
+// ===== שמירה וטעינה של כיול ב-localStorage =====
+const CAL_STORAGE_KEY = 'studio_preview_calibrations_v1';
+
+function loadSavedCalibrations() {
+  try {
+    const raw = localStorage.getItem(CAL_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    // החל את הכיולים השמורים על TEMPLATES
+    Object.keys(saved).forEach(key => {
+      if (TEMPLATES[key] && saved[key].screens) {
+        // ודא שמספר המסכים תואם
+        if (saved[key].screens.length === TEMPLATES[key].screens.length) {
+          saved[key].screens.forEach((savedScreen, idx) => {
+            if (savedScreen.corners && savedScreen.corners.length === 4) {
+              TEMPLATES[key].screens[idx].corners = savedScreen.corners;
+            }
+          });
+        }
+      }
+    });
+    console.log('[Calibration] טעינה הצליחה');
+  } catch (err) {
+    console.warn('[Calibration] שגיאת טעינה:', err);
+  }
+}
+
+function saveCurrentCalibration() {
+  try {
+    let saved = {};
+    const raw = localStorage.getItem(CAL_STORAGE_KEY);
+    if (raw) saved = JSON.parse(raw);
+    
+    const tpl = getCurrentTemplate();
+    saved[currentTemplateKey] = {
+      name: tpl.name,
+      screens: tpl.screens.map(s => ({
+        label: s.label,
+        corners: s.corners.map(c => ({x: c.x, y: c.y}))
+      })),
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem(CAL_STORAGE_KEY, JSON.stringify(saved));
+    return true;
+  } catch (err) {
+    console.error('[Calibration] שגיאת שמירה:', err);
+    return false;
+  }
+}
+
+document.getElementById('saveCal').addEventListener('click', () => {
+  const ok = saveCurrentCalibration();
+  const btn = document.getElementById('saveCal');
+  const origText = btn.textContent;
+  if (ok) {
+    btn.textContent = '✓ נשמר!';
+    btn.style.filter = 'brightness(1.3)';
+  } else {
+    btn.textContent = '❌ שגיאה';
+  }
+  setTimeout(() => {
+    btn.textContent = origText;
+    btn.style.filter = '';
+  }, 1500);
+});
+
 // ===== Init =====
+loadSavedCalibrations();
 renderTemplateSelector();
 switchTemplate(currentTemplateKey);
 </script>
