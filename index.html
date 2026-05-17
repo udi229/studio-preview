@@ -373,7 +373,7 @@ const TEMPLATES = {
       {
         label: "מסך גדול שמאלי",
         corners: [
-          {x: 0.0024739583333333332, y: -0.47225467289719625},
+          {x: 0.000390625, y: -0.479731308411215},
           {x: 0.406640625, y: -0.3414135514018692},
           {x: 0.3983072916666667, y: 0.8884929906542056},
           {x: 0.000462962962962963, y: 0.9470404984423676}
@@ -512,11 +512,14 @@ function updateDownloadBtn() {
 }
 
 // ===== ציור =====
+let animationFrameId = null;
+
 function render() {
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   if (bgImage.complete) ctx.drawImage(bgImage, 0, 0, W, H);
 
+  let needsAnimation = false;
   const tpl = getCurrentTemplate();
   tpl.screens.forEach((screen, idx) => {
     if (userImages[idx] && showPreview) {
@@ -525,24 +528,65 @@ function render() {
       drawCalibrationPlaceholder(screen.corners, screen.label);
     } else {
       drawPlaceholder(screen.corners, screen.label);
+      needsAnimation = true;
     }
   });
+
+  // לולאת אנימציה - רצה רק כל עוד יש מסך עם כיתוב ניאון נושם
+  if (needsAnimation) {
+    animationFrameId = requestAnimationFrame(render);
+  } else if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
 }
 
 function drawPlaceholder(corners, labelTxt) {
   const pts = corners.map(c => ({x: c.x * canvas.width, y: c.y * canvas.height}));
   ctx.save();
-  // קליפ לפריים - מסך שחור מלא, ללא מסגרת או טקסט
+  // קליפ לפריים
   ctx.beginPath();
   ctx.rect(0, 0, canvas.width, canvas.height);
   ctx.clip();
-  
+
+  // רקע כהה למסך
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i=1; i<4; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = '#0a0a0f';
   ctx.fill();
+
+  // מרכז המסך (מוגבל לתחום הנראה בפריים)
+  let cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
+  let cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+  cx = Math.max(80, Math.min(canvas.width - 80, cx));
+  cy = Math.max(40, Math.min(canvas.height - 40, cy));
+
+  // אפקט "נשימה" - עוצמת הזוהר משתנה לאורך זמן
+  const t = (Date.now() % 2600) / 2600;          // מחזור של 2.6 שניות
+  const breath = 0.5 - 0.5 * Math.cos(t * 2 * Math.PI); // 0..1..0 חלק
+  const glow = 14 + breath * 26;                  // עוצמת blur
+  const alpha = 0.65 + breath * 0.35;             // שקיפות
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const fontSize = Math.max(16, Math.min(34, canvas.width * 0.026));
+  ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", Arial, sans-serif`;
+
+  // שכבות זוהר ניאון לבן
+  ctx.shadowColor = 'rgba(220, 235, 255, ' + alpha + ')';
+  ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
+  for (let i = 0; i < 3; i++) {
+    ctx.shadowBlur = glow * (1 + i * 0.6);
+    ctx.fillText('התמונה תעלה כאן', cx, cy);
+  }
+  // ליבת הטקסט - חדה ובהירה
+  ctx.shadowBlur = 4;
+  ctx.shadowColor = 'rgba(255,255,255,.9)';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('התמונה תעלה כאן', cx, cy);
+
   ctx.restore();
 }
 
