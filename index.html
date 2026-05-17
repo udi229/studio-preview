@@ -315,9 +315,24 @@
     display: flex; align-items: center; gap: 4px;
   }
   .pad-controls input { width: 60px; padding: 3px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; }
+  /* ===== SPLASH SCREEN ===== */
+  #splash-screen {
+    position: fixed; inset: 0; z-index: 9999;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    transition: opacity .4s ease;
+  }
+  #splash-screen.hide { opacity: 0; pointer-events: none; }
+  #splash-screen.gone { display: none; }
+  #splash-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
+<!-- SPLASH SCREEN -->
+<div id="splash-screen">
+  <canvas id="splash-canvas"></canvas>
+</div>
 <!-- מודאל קוד מנהל -->
 <div class="modal-overlay" id="adminModal">
   <div class="modal">
@@ -335,7 +350,6 @@
 <div class="wrap">
   <button class="admin-btn" id="adminBtn" title="כניסת מנהל">👤</button>
   <h1>🎬 תצוגה מקדימה במסכי האולפן</h1>
-  <div class="sub">בחר תבנית והעלה תמונות - תראה איך הן יראו דרך המצלמה</div>
   <div style="text-align:center;">
     <span class="admin-badge">⚙️ מצב מנהל פעיל</span>
   </div>
@@ -365,14 +379,6 @@
     <button class="btn alt" id="resetBtn">🔄 איפוס תמונות</button>
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
     <button class="btn alt admin-only" id="exportCfg">📋 העתק קונפיגורציה</button>
-  </div>
-
-  <div class="info">
-    💡 <b>שימוש:</b> בחר את התבנית הרלוונטית למעלה, העלה תמונות לכל מסך, וצפה איך התמונה תיראה דרך המצלמה.
-    <span class="admin-only">
-      <br><b>כיול (מנהל):</b> לחץ "⚙️ הצג כיול", גרור את הפינות הצבעוניות למקום המדויק של כל מסך באולפן. אפשר לגרור גם מחוץ לפריים.<br>
-      <b>שמירת כיול:</b> לאחר שכיילת - לחץ "📋 העתק קונפיגורציה" ושלח לאודי.
-    </span>
   </div>
 </div>
 
@@ -1076,10 +1082,166 @@ document.getElementById('saveCal').addEventListener('click', () => {
   }, 1500);
 });
 
+// ===== SPLASH SCREEN - פס אור זוהר כחול =====
+function initSplash() {
+  const splash = document.getElementById('splash-screen');
+  const canvas = document.getElementById('splash-canvas');
+  if (!canvas) { startApp(); return; }
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth || 375;
+  canvas.height = window.innerHeight || 667;
+  const W = canvas.width, H = canvas.height;
+
+  let frame = 0;
+  const BEAM_FRAMES = 120;  // מעבר הקרן ~2 שניות
+  const HOLD_FRAMES = 40;   // החזקת הטקסט ~0.65 שניות
+  const SNAKE_FRAMES = 48;  // מחיקת "נחש" ~0.8 שניות
+  const TOTAL = BEAM_FRAMES + HOLD_FRAMES + SNAKE_FRAMES + 10;
+  const WORD = 'אולפנים';
+  const SUBWORD = 'תצוגה מקדימה';
+  const fontSize = Math.round(Math.min(W * 0.12, 120));
+  const subFontSize = Math.round(fontSize * 0.42);
+  const subGap = fontSize * 0.78; // מרחק בין המילה הראשית למשנה
+
+  const tid = setInterval(() => {
+    ctx.fillStyle = '#030508';
+    ctx.fillRect(0, 0, W, H);
+    const t = Math.min(1, frame / BEAM_FRAMES);
+    const beamX = -W * 0.3 + (W * 1.6) * t;
+    const beamW = W * 0.35;
+
+    // רשת רקע
+    ctx.strokeStyle = 'rgba(0,150,255,0.06)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 50) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 50) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+
+    // הילת הקרן
+    const g2 = ctx.createLinearGradient(beamX - beamW, 0, beamX + beamW, 0);
+    g2.addColorStop(0, 'transparent');
+    g2.addColorStop(0.35, 'rgba(0,180,255,0.04)');
+    g2.addColorStop(0.5, 'rgba(120,220,255,0.18)');
+    g2.addColorStop(0.65, 'rgba(0,180,255,0.04)');
+    g2.addColorStop(1, 'transparent');
+    ctx.fillStyle = g2;
+    ctx.fillRect(beamX - beamW, 0, beamW * 2, H);
+
+    // ליבת הקרן
+    const g1 = ctx.createLinearGradient(beamX - 18, 0, beamX + 18, 0);
+    g1.addColorStop(0, 'transparent');
+    g1.addColorStop(0.4, 'rgba(180,240,255,0.55)');
+    g1.addColorStop(0.5, 'rgba(255,255,255,0.9)');
+    g1.addColorStop(0.6, 'rgba(180,240,255,0.55)');
+    g1.addColorStop(1, 'transparent');
+    ctx.fillStyle = g1;
+    ctx.fillRect(beamX - 18, 0, 36, H);
+
+    // השתקפות רצפה
+    const ry = H * 0.85;
+    const gr = ctx.createLinearGradient(beamX - 60, 0, beamX + 60, 0);
+    gr.addColorStop(0, 'transparent');
+    gr.addColorStop(0.5, 'rgba(0,200,255,0.35)');
+    gr.addColorStop(1, 'transparent');
+    ctx.fillStyle = gr;
+    ctx.fillRect(beamX - 60, ry, 120, 3);
+
+    // טקסט
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (frame < BEAM_FRAMES) {
+      // הקרן מגלה את הטקסט
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, beamX + 18, H);
+      ctx.clip();
+      // מילה ראשית
+      ctx.font = `900 ${fontSize}px Arial, sans-serif`;
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur = 40;
+      ctx.fillStyle = 'rgba(0,200,255,0.3)';
+      ctx.fillText(WORD, W / 2, H / 2);
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(WORD, W / 2, H / 2);
+      const dist = Math.abs(W / 2 - beamX);
+      if (dist < W * 0.25) {
+        const shine = Math.max(0, 1 - dist / (W * 0.25));
+        ctx.shadowColor = '#fff';
+        ctx.shadowBlur = 60 * shine;
+        ctx.fillStyle = `rgba(255,255,255,${0.4 * shine})`;
+        ctx.fillText(WORD, W / 2, H / 2);
+      }
+      // שורת משנה
+      ctx.font = `700 ${subFontSize}px Arial, sans-serif`;
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur = 26;
+      ctx.fillStyle = 'rgba(0,200,255,0.35)';
+      ctx.fillText(SUBWORD, W / 2, H / 2 + subGap);
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(SUBWORD, W / 2, H / 2 + subGap);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    } else if (frame < BEAM_FRAMES + HOLD_FRAMES) {
+      // החזקה - המילה המלאה גלויה
+      ctx.font = `900 ${fontSize}px Arial, sans-serif`;
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur = 24;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(WORD, W / 2, H / 2);
+      ctx.font = `700 ${subFontSize}px Arial, sans-serif`;
+      ctx.shadowBlur = 16;
+      ctx.fillText(SUBWORD, W / 2, H / 2 + subGap);
+      ctx.shadowBlur = 0;
+    } else if (frame < BEAM_FRAMES + HOLD_FRAMES + SNAKE_FRAMES) {
+      // מחיקת נחש - אותיות נמחקות אחת-אחת
+      const snakeT = (frame - (BEAM_FRAMES + HOLD_FRAMES)) / SNAKE_FRAMES;
+      const charsGone = Math.floor(snakeT * (WORD.length + 1));
+      const remaining = WORD.slice(charsGone);
+      if (remaining.length > 0) {
+        ctx.font = `900 ${fontSize}px Arial, sans-serif`;
+        ctx.shadowColor = '#00d4ff';
+        ctx.shadowBlur = 24;
+        ctx.fillStyle = '#fff';
+        ctx.fillText(remaining, W / 2, H / 2);
+        ctx.shadowBlur = 0;
+      }
+      // שורת משנה נמחקת גם היא
+      const subGone = Math.floor(snakeT * (SUBWORD.length + 1));
+      const subRemaining = SUBWORD.slice(subGone);
+      if (subRemaining.length > 0) {
+        ctx.font = `700 ${subFontSize}px Arial, sans-serif`;
+        ctx.shadowColor = '#00d4ff';
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = '#fff';
+        ctx.fillText(subRemaining, W / 2, H / 2 + subGap);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    frame++;
+    if (frame > TOTAL) {
+      clearInterval(tid);
+      splash.classList.add('hide');
+      setTimeout(() => splash.classList.add('gone'), 450);
+      startApp();
+    }
+  }, 16);
+}
+
+function startApp() {
+  loadSavedCalibrations();
+  renderTemplateSelector();
+  switchTemplate(currentTemplateKey);
+}
+
 // ===== Init =====
-loadSavedCalibrations();
-renderTemplateSelector();
-switchTemplate(currentTemplateKey);
+initSplash();
 </script>
 </body>
 </html>
