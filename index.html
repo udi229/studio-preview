@@ -96,8 +96,9 @@
   }
 
   /* כפתורי מנהל - מוסתרים בברירת מחדל */
-  .admin-only { display: none; }
-  body.admin-mode .admin-only { display: inline-flex; }
+  .admin-only { display: none !important; }
+  body.admin-mode .admin-only { display: inline-flex !important; }
+  body.admin-mode div.admin-only { display: flex !important; }
 
   /* תצוגת מצב המנהל */
   .admin-badge {
