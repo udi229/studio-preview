@@ -396,6 +396,34 @@
   }
   .modal-status.ok { color: #7fe0a0; }
   .modal-status.err { color: #ff6677; }
+  /* ===== מד שימוש (מנהל) ===== */
+  #usageCounter {
+    position: fixed;
+    bottom: 14px;
+    right: 14px;
+    background: linear-gradient(135deg, rgba(26,31,46,.95), rgba(35,40,67,.95));
+    border: 1px solid rgba(80,160,255,.35);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #cdd8ee;
+    box-shadow: 0 4px 16px rgba(0,0,0,.5), 0 0 14px rgba(80,160,255,.12);
+    z-index: 900;
+    direction: rtl;
+    display: none;
+    backdrop-filter: blur(4px);
+    line-height: 1.5;
+  }
+  body.admin-mode #usageCounter { display: block; }
+  #usageCounter .uc-num {
+    color: #6fd0ff;
+    font-weight: 800;
+    font-size: 15px;
+  }
+  #usageCounter .uc-label {
+    color: #8a9ab5;
+    font-size: 10px;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -446,6 +474,7 @@
   <div class="actions">
     <button class="btn" id="togglePreview" disabled>👁️ הצג/הסתר תמונות</button>
     <button class="btn warn admin-only" id="toggleCal">⚙️ הצג/הסתר כיול</button>
+    <button class="btn alt admin-only" id="previewLook" style="background: linear-gradient(135deg, #5a3aa8, #8a6ae0); box-shadow: 0 2px 10px rgba(138,106,224,.4);">👁️ איך זה ייראה?</button>
     <button class="btn" id="downloadBtn" disabled>💾 הורד תוצאה</button>
     <button class="btn alt" id="resetBtn">🔄 איפוס תמונות</button>
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
@@ -477,6 +506,13 @@
     </div>
     <div id="newStudioStatus" class="modal-status"></div>
   </div>
+</div>
+
+<!-- מד שימוש - גלוי רק למנהל -->
+<div id="usageCounter">
+  <span class="uc-label">📊 בדיקות באולפן זה:</span>
+  <span class="uc-num" id="usageNum">0</span>
+  <span class="uc-label" id="usageScope"></span>
 </div>
 
 <script>
@@ -536,6 +572,7 @@ async function loadStudiosFromCloud() {
         canvasW: row.canvas_w || 1016,
         canvasH: row.canvas_h || 576,
         screens: row.screens || [],
+        usageCount: row.usage_count || 0,
         cloudId: row.id  // מסמן שזו תבנית מהענן
       };
     });
@@ -568,6 +605,7 @@ async function createStudioInCloud(name, bgB64, screens, canvasW, canvasH) {
     canvasW: data.canvas_w,
     canvasH: data.canvas_h,
     screens: data.screens || [],
+    usageCount: data.usage_count || 0,
     cloudId: data.id
   };
   return key;
@@ -594,6 +632,69 @@ async function deleteStudioFromCloud(cloudId) {
   if (error) throw error;
 }
 
+// ===== מונה שימוש =====
+const USAGE_STORAGE_KEY = 'studio_preview_usage_v1';
+
+// קורא את כל המונים המקומיים (לאולפנים מובנים)
+function getLocalUsage() {
+  try {
+    return JSON.parse(localStorage.getItem(USAGE_STORAGE_KEY) || '{}');
+  } catch (err) {
+    return {};
+  }
+}
+
+// מגדיל מונה מקומי באחד ומחזיר את הערך החדש
+function bumpLocalUsage(key) {
+  const usage = getLocalUsage();
+  usage[key] = (usage[key] || 0) + 1;
+  try {
+    localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(usage));
+  } catch (err) {
+    console.error('[Usage] שגיאת שמירה:', err);
+  }
+  return usage[key];
+}
+
+// מגדיל מונה שימוש לאולפן הנוכחי - ענן או מקומי
+async function bumpUsageCounter(key) {
+  const tpl = TEMPLATES[key];
+  if (!tpl) return;
+  if (tpl.cloudId) {
+    // אולפן ענן - מונה גלובלי ב-Supabase
+    const newVal = (tpl.usageCount || 0) + 1;
+    tpl.usageCount = newVal;
+    try {
+      await updateStudioInCloud(tpl.cloudId, { usage_count: newVal });
+    } catch (err) {
+      console.error('[Usage] שגיאת עדכון ענן:', err);
+    }
+  } else {
+    // אולפן מובנה - מונה מקומי
+    tpl.usageCount = bumpLocalUsage(key);
+  }
+  renderUsageCounter();
+}
+
+// מרענן את תצוגת מד השימוש לפי האולפן הנוכחי
+function renderUsageCounter() {
+  const numEl = document.getElementById('usageNum');
+  const scopeEl = document.getElementById('usageScope');
+  if (!numEl) return;
+  const tpl = TEMPLATES[currentTemplateKey];
+  if (!tpl) { numEl.textContent = '0'; return; }
+  let count;
+  if (tpl.cloudId) {
+    count = tpl.usageCount || 0;
+    scopeEl.textContent = '(כל הצוות)';
+  } else {
+    count = getLocalUsage()[currentTemplateKey] || 0;
+    tpl.usageCount = count;
+    scopeEl.textContent = '(מכשיר זה)';
+  }
+  numEl.textContent = count;
+}
+
 let currentTemplateKey = 'studio3'; // ברירת מחדל - התבנית החדשה
 let CAL_PAD = 60;
 let showPreview = true; // האם להציג את התמונות המועלות על המסכים
@@ -603,6 +704,8 @@ const ctx = canvas.getContext('2d');
 let bgImage = new Image();
 let userImages = [];
 let calMode = false;
+let previewLook = false; // מצב "איך זה ייראה" - תצוגה סופית כמו לבמאי
+let usageCountedThisSession = false; // נספרה כבר בדיקה בסשן הנוכחי?
 
 // ===== מערכת תבניות =====
 function renderTemplateSelector() {
@@ -697,6 +800,7 @@ function switchTemplate(key) {
   document.getElementById('stage').style.aspectRatio = `${tpl.canvasW} / ${tpl.canvasH}`;
   userImages = new Array(tpl.screens.length).fill(null);
   showPreview = true;
+  usageCountedThisSession = false; // סשן חדש - מאפשר ספירה מחדש
   const tpBtn = document.getElementById('togglePreview');
   if (tpBtn) tpBtn.textContent = '🙈 הסתר תמונות';
   
@@ -710,6 +814,7 @@ function switchTemplate(key) {
   renderTemplateSelector();
   renderUploaders();
   updateDownloadBtn();
+  renderUsageCounter();
 }
 
 function getCurrentTemplate() {
@@ -772,6 +877,11 @@ function loadFileTo(idx, file) {
       document.getElementById('fn' + idx).textContent = '✓ ' + file.name;
       updateDownloadBtn();
       render();
+      // ספירת בדיקה - פעם אחת לכל סשן באולפן (לא לכל מסך בנפרד)
+      if (!usageCountedThisSession) {
+        usageCountedThisSession = true;
+        bumpUsageCounter(currentTemplateKey);
+      }
     };
     img.src = ev.target.result;
   };
@@ -806,7 +916,7 @@ function render() {
   tpl.screens.forEach((screen, idx) => {
     if (userImages[idx] && showPreview) {
       drawScreenImage(userImages[idx], screen.corners);
-    } else if (calMode) {
+    } else if (calMode && !previewLook) {
       drawCalibrationPlaceholder(screen.corners, screen.label);
     } else {
       drawPlaceholder(screen.corners, screen.label);
@@ -905,7 +1015,7 @@ function drawScreenImage(img, corners) {
   const STEPS = 60;
   const iw = img.width, ih = img.height;
   
-  // שלב 1: שכבת רקע שחורה על אזור המסך - מסתירה את התמונה שמאחור (סמוטריץ') ומונעת שקיפות
+  // שלב 1: שכבת רקע שחורה על אזור המסך - מסתירה את התמונה שמאחור ומונעת שקיפות
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, canvas.width, canvas.height);
@@ -920,8 +1030,25 @@ function drawScreenImage(img, corners) {
   ctx.fill();
   ctx.restore();
   
-  // שלב 2: ציור התמונה על השכבה השחורה
+  // שלב 2: ציור התמונה.
+  // ה-clip מוגדר פעם אחת בלבד - על המרובע השלם של המסך.
+  // המשולשים מצוירים בתוכו ללא clip פרטני וללא ניפוח, ולכן אין
+  // אזורים שנצבעים פעמיים -> אין דוגמת רשת ("שתי וערב").
+  // כדי לסגור סדקים דקים בין משולשים סמוכים, מקטע המקור של כל
+  // משולש מורחב ב-SEAM פיקסל; כיוון שאין clip פרטני התמונה פשוט
+  // נמשכת מעט אל השכן, והרציפות של התמונה מסתירה את החפיפה לגמרי.
   ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(tl.x, tl.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.lineTo(bl.x, bl.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const SEAM = 0.75; // הרחבת מקטע מקור בפיקסלים לסגירת סדקים
   for (let i=0; i<STEPS; i++) {
     for (let j=0; j<STEPS; j++) {
       const u1=i/STEPS, u2=(i+1)/STEPS, v1=j/STEPS, v2=(j+1)/STEPS;
@@ -936,7 +1063,11 @@ function drawScreenImage(img, corners) {
       const maxY = Math.max(p00.y, p10.y, p11.y, p01.y);
       if (maxX < 0 || minX > canvas.width || maxY < 0 || minY > canvas.height) continue;
       
-      const sx1=u1*iw, sx2=u2*iw, sy1=v1*ih, sy2=v2*ih;
+      // מקטע מקור מורחב מעט (נשאר בתוך גבולות התמונה)
+      const sx1 = Math.max(0,  u1*iw - SEAM);
+      const sx2 = Math.min(iw, u2*iw + SEAM);
+      const sy1 = Math.max(0,  v1*ih - SEAM);
+      const sy2 = Math.min(ih, v2*ih + SEAM);
       drawTriangle(img, sx1,sy1, sx2,sy1, sx1,sy2, p00,p10,p01);
       drawTriangle(img, sx2,sy1, sx2,sy2, sx1,sy2, p10,p11,p01);
     }
@@ -951,32 +1082,26 @@ function bilinear(tl,tr,br,bl,u,v){
 }
 
 function drawTriangle(img, sx0,sy0, sx1,sy1, sx2,sy2, p0,p1,p2){
-  ctx.save();
-  
-  // הרחבת המשולש בחצי פיקסל החוצה כדי לסגור את הסדקים בין משולשים סמוכים
-  // מחשבים מרכז ודוחפים כל קודקוד החוצה ממנו
-  const cx = (p0.x + p1.x + p2.x) / 3;
-  const cy = (p0.y + p1.y + p2.y) / 3;
-  const expand = (p) => {
-    const dx = p.x - cx, dy = p.y - cy;
-    const len = Math.hypot(dx, dy);
-    if (len < 0.001) return p;
-    const f = (len + 0.5) / len;
-    return { x: cx + dx * f, y: cy + dy * f };
-  };
-  const e0 = expand(p0), e1 = expand(p1), e2 = expand(p2);
-  
-  ctx.beginPath();
-  ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y); ctx.lineTo(e2.x, e2.y);
-  ctx.closePath(); ctx.clip();
   const denom = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0);
-  if (Math.abs(denom) < 1e-6) { ctx.restore(); return; }
+  if (Math.abs(denom) < 1e-6) return;
   const a = ((p1.x-p0.x)*(sy2-sy0) - (p2.x-p0.x)*(sy1-sy0)) / denom;
   const c = ((p2.x-p0.x)*(sx1-sx0) - (p1.x-p0.x)*(sx2-sx0)) / denom;
   const e = p0.x - a*sx0 - c*sy0;
   const b = ((p1.y-p0.y)*(sy2-sy0) - (p2.y-p0.y)*(sy1-sy0)) / denom;
   const d = ((p2.y-p0.y)*(sx1-sx0) - (p1.y-p0.y)*(sx2-sx0)) / denom;
   const f = p0.y - b*sx0 - d*sy0;
+
+  ctx.save();
+  // clip מדויק לפי המשולש - ללא ניפוח.
+  // clip מדויק לא גורם לאזורים שנצבעים פעמיים, ולכן אין דוגמת רשת.
+  // הסדקים הלבנים נסגרים ע"י הרחבת מקטע המקור (SEAM) ב-drawScreenImage:
+  // התמונה נמשכת מעט אל מעבר לגבול, וה-clip חותך את העודף בדיוק.
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.closePath();
+  ctx.clip();
   ctx.setTransform(a,b,c,d,e,f);
   ctx.drawImage(img, 0, 0);
   ctx.setTransform(1,0,0,1,0,0);
@@ -987,7 +1112,7 @@ function drawTriangle(img, sx0,sy0, sx1,sy1, sx2,sy2, p0,p1,p2){
 function renderCorners() {
   const overlay = document.getElementById('cornersOverlay');
   overlay.innerHTML = '';
-  if (!calMode) return;
+  if (!calMode || previewLook) return;
   
   const sceneWrap = document.getElementById('sceneWrap');
   const stage = document.getElementById('stage');
@@ -1069,6 +1194,13 @@ document.getElementById('togglePreview').addEventListener('click', () => {
 });
 
 document.getElementById('toggleCal').addEventListener('click', () => {
+  // יציאה ממצב תצוגה אם היה פעיל
+  if (previewLook) {
+    previewLook = false;
+    const btn = document.getElementById('previewLook');
+    btn.textContent = '👁️ איך זה ייראה?';
+    btn.style.filter = '';
+  }
   calMode = !calMode;
   document.getElementById('sceneWrap').classList.toggle('cal-mode', calMode);
   document.getElementById('padControls').classList.toggle('show', calMode);
@@ -1082,10 +1214,37 @@ document.getElementById('toggleCal').addEventListener('click', () => {
 
 document.getElementById('padInput').addEventListener('input', e => {
   CAL_PAD = parseInt(e.target.value) || 60;
-  if (calMode) {
+  if (calMode && !previewLook) {
     document.getElementById('sceneWrap').style.padding = CAL_PAD + 'px';
     setTimeout(renderCorners, 50);
   }
+});
+
+// כפתור "איך זה ייראה?" - תצוגה סופית כמו לבמאי הרגיל
+document.getElementById('previewLook').addEventListener('click', () => {
+  previewLook = !previewLook;
+  const sceneWrap = document.getElementById('sceneWrap');
+  const btn = document.getElementById('previewLook');
+
+  if (previewLook) {
+    // מצב תצוגה - מסיר את עיטורי הכיול, מציג תוצאה סופית
+    sceneWrap.classList.remove('cal-mode');
+    sceneWrap.style.padding = '0';
+    document.getElementById('padControls').classList.remove('show');
+    btn.textContent = '🔧 חזרה לעריכה';
+    btn.style.filter = 'brightness(1.25)';
+  } else {
+    // חזרה - אם היינו במצב כיול, מחזיר את עיטורי הכיול
+    if (calMode) {
+      sceneWrap.classList.add('cal-mode');
+      sceneWrap.style.padding = CAL_PAD + 'px';
+      document.getElementById('padControls').classList.add('show');
+    }
+    btn.textContent = '👁️ איך זה ייראה?';
+    btn.style.filter = '';
+  }
+  renderCorners();
+  render();
 });
 
 window.addEventListener('resize', () => { if (calMode) renderCorners(); });
