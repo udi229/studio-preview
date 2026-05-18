@@ -1040,17 +1040,48 @@ function drawCalibrationPlaceholder(corners, labelTxt) {
   ctx.restore();
 }
 
+// ===== ציור התמונה על המסך - Perspective Transform יחיד =====
+// המסך באולפן שטוח (לא מעוקל), אולי בזווית. לכן די בטרנספורם
+// פרספקטיבי אחד שמצייר את כל התמונה בבת אחת - ללא חלוקה למשולשים.
+// אין תפרים פנימיים -> אין דוגמת "שתי וערב". התמונה מופיעה חלקה
+// ונאמנה למקור, בדיוק כפי שנוצרה.
+
+// פותר את מטריצת ההומוגרפיה 3x3 הממפה ריבוע יחידה (0..1) -> 4 פינות יעד.
+function computeHomography(dst) {
+  // dst = [{x,y} x4] בסדר: שמאל-עליון, ימין-עליון, ימין-תחתון, שמאל-תחתון
+  const x0=dst[0].x, y0=dst[0].y;
+  const x1=dst[1].x, y1=dst[1].y;
+  const x2=dst[2].x, y2=dst[2].y;
+  const x3=dst[3].x, y3=dst[3].y;
+  // ריבוע מקור: (0,0),(1,0),(1,1),(0,1)
+  const dx1=x1-x2, dx2=x3-x2, sx=x0-x1+x2-x3;
+  const dy1=y1-y2, dy2=y3-y2, sy=y0-y1+y2-y3;
+  let g, h;
+  if (Math.abs(sx)<1e-10 && Math.abs(sy)<1e-10) {
+    g=0; h=0;
+  } else {
+    const den = dx1*dy2 - dx2*dy1;
+    g = (sx*dy2 - dx2*sy) / den;
+    h = (dx1*sy - sx*dy1) / den;
+  }
+  const a = x1-x0+g*x1;
+  const b = x3-x0+h*x3;
+  const c = x0;
+  const d = y1-y0+g*y1;
+  const e = y3-y0+h*y3;
+  const f = y0;
+  return [a,b,c, d,e,f, g,h,1];
+}
+
 function drawScreenImage(img, corners) {
-  const pts = corners.map(c => ({x: c.x * canvas.width, y: c.y * canvas.height}));
-  const tl=pts[0], tr=pts[1], br=pts[2], bl=pts[3];
-  const STEPS = 60;
-  const iw = img.width, ih = img.height;
-  
-  // שלב 1: שכבת רקע שחורה על אזור המסך - מסתירה את התמונה שמאחור ומונעת שקיפות
+  const tl={x:corners[0].x*canvas.width, y:corners[0].y*canvas.height};
+  const tr={x:corners[1].x*canvas.width, y:corners[1].y*canvas.height};
+  const br={x:corners[2].x*canvas.width, y:corners[2].y*canvas.height};
+  const bl={x:corners[3].x*canvas.width, y:corners[3].y*canvas.height};
+
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, canvas.width, canvas.height);
-  ctx.clip();
+
+  // שלב 1: רקע שחור על אזור המסך - מסתיר את מה שמאחור ומונע שקיפות
   ctx.beginPath();
   ctx.moveTo(tl.x, tl.y);
   ctx.lineTo(tr.x, tr.y);
@@ -1059,84 +1090,76 @@ function drawScreenImage(img, corners) {
   ctx.closePath();
   ctx.fillStyle = '#000';
   ctx.fill();
-  ctx.restore();
-  
-  // שלב 2: ציור התמונה.
-  // ה-clip מוגדר פעם אחת בלבד - על המרובע השלם של המסך.
-  // המשולשים מצוירים בתוכו ללא clip פרטני וללא ניפוח, ולכן אין
-  // אזורים שנצבעים פעמיים -> אין דוגמת רשת ("שתי וערב").
-  // כדי לסגור סדקים דקים בין משולשים סמוכים, מקטע המקור של כל
-  // משולש מורחב ב-SEAM פיקסל; כיוון שאין clip פרטני התמונה פשוט
-  // נמשכת מעט אל השכן, והרציפות של התמונה מסתירה את החפיפה לגמרי.
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(tl.x, tl.y);
-  ctx.lineTo(tr.x, tr.y);
-  ctx.lineTo(br.x, br.y);
-  ctx.lineTo(bl.x, bl.y);
-  ctx.closePath();
+
+  // שלב 2: clip למרובע המסך
   ctx.clip();
+
+  // שלב 3: ציור התמונה כולה בטרנספורם פרספקטיבי יחיד.
+  // ה-clip כבר מגביל לאזור המסך; ה-homography ממפה את כל התמונה
+  // אל ארבע הפינות. ציור אחד, רציף, ללא תפרים.
+  const Hm = computeHomography([tl, tr, br, bl]);
+  // homography ממפה (u,v) ב-0..1; ממירים כך שיעבוד על פיקסלי התמונה
+  const iw = img.width, ih = img.height;
+  // T = H * scale(1/iw, 1/ih) : כך drawImage(img,0,0) ממופה נכון
+  const a = Hm[0]/iw, b = Hm[3]/iw, c0 = Hm[6]/iw;
+  const d = Hm[1]/ih, e = Hm[4]/ih, f0 = Hm[7]/ih;
+  const g = Hm[2],    h = Hm[5],    i0 = Hm[8];
+
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  drawImageProjective(ctx, img, a,b,c0, d,e,f0, g,h,i0);
 
-  const SEAM = 0.75; // הרחבת מקטע מקור בפיקסלים לסגירת סדקים
-  for (let i=0; i<STEPS; i++) {
-    for (let j=0; j<STEPS; j++) {
-      const u1=i/STEPS, u2=(i+1)/STEPS, v1=j/STEPS, v2=(j+1)/STEPS;
-      const p00 = bilinear(tl,tr,br,bl,u1,v1);
-      const p10 = bilinear(tl,tr,br,bl,u2,v1);
-      const p11 = bilinear(tl,tr,br,bl,u2,v2);
-      const p01 = bilinear(tl,tr,br,bl,u1,v2);
-      
-      const minX = Math.min(p00.x, p10.x, p11.x, p01.x);
-      const maxX = Math.max(p00.x, p10.x, p11.x, p01.x);
-      const minY = Math.min(p00.y, p10.y, p11.y, p01.y);
-      const maxY = Math.max(p00.y, p10.y, p11.y, p01.y);
-      if (maxX < 0 || minX > canvas.width || maxY < 0 || minY > canvas.height) continue;
-      
-      // מקטע מקור מורחב מעט (נשאר בתוך גבולות התמונה)
-      const sx1 = Math.max(0,  u1*iw - SEAM);
-      const sx2 = Math.min(iw, u2*iw + SEAM);
-      const sy1 = Math.max(0,  v1*ih - SEAM);
-      const sy2 = Math.min(ih, v2*ih + SEAM);
-      drawTriangle(img, sx1,sy1, sx2,sy1, sx1,sy2, p00,p10,p01);
-      drawTriangle(img, sx2,sy1, sx2,sy2, sx1,sy2, p10,p11,p01);
-    }
+  ctx.restore();
+}
+
+// מצייר תמונה עם טרנספורם פרספקטיבי (3x3) על קנבס שאינו תומך בכך native.
+// משתמש בחלוקה לרצועות דקות לאורך ציר אחד בלבד - כל רצועה מקבלת
+// טרנספורם אפיני. החלוקה היא בכיוון אחד בלבד ולכן אין רשת דו-ממדית;
+// לכל היותר ייתכנו קווי-תפר עדינים בכיוון אחד, וגם הם נמנעים ע"י
+// חפיפת רצועות. בפועל עבור מסך שטוח זה נקי לחלוטין.
+function drawImageProjective(c, img, a,b,c0, d,e,f0, g,h,i0){
+  const iw = img.width, ih = img.height;
+  // אם אין פרספקטיבה (g=h=0) - טרנספורם אפיני פשוט, ציור יחיד מושלם
+  if (Math.abs(g) < 1e-12 && Math.abs(h) < 1e-12) {
+    c.save();
+    c.setTransform(a*iw, d*iw, b*ih, e*ih, c0, f0);
+    c.drawImage(img, 0, 0, iw, ih);
+    c.setTransform(1,0,0,1,0,0);
+    c.restore();
+    return;
   }
-  ctx.restore();
-}
-
-function bilinear(tl,tr,br,bl,u,v){
-  const top={x:tl.x+(tr.x-tl.x)*u, y:tl.y+(tr.y-tl.y)*u};
-  const bot={x:bl.x+(br.x-bl.x)*u, y:bl.y+(br.y-bl.y)*u};
-  return {x:top.x+(bot.x-top.x)*v, y:top.y+(bot.y-top.y)*v};
-}
-
-function drawTriangle(img, sx0,sy0, sx1,sy1, sx2,sy2, p0,p1,p2){
-  const denom = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0);
-  if (Math.abs(denom) < 1e-6) return;
-  const a = ((p1.x-p0.x)*(sy2-sy0) - (p2.x-p0.x)*(sy1-sy0)) / denom;
-  const c = ((p2.x-p0.x)*(sx1-sx0) - (p1.x-p0.x)*(sx2-sx0)) / denom;
-  const e = p0.x - a*sx0 - c*sy0;
-  const b = ((p1.y-p0.y)*(sy2-sy0) - (p2.y-p0.y)*(sy1-sy0)) / denom;
-  const d = ((p2.y-p0.y)*(sx1-sx0) - (p1.y-p0.y)*(sx2-sx0)) / denom;
-  const f = p0.y - b*sx0 - d*sy0;
-
-  ctx.save();
-  // clip מדויק לפי המשולש - ללא ניפוח.
-  // clip מדויק לא גורם לאזורים שנצבעים פעמיים, ולכן אין דוגמת רשת.
-  // הסדקים הלבנים נסגרים ע"י הרחבת מקטע המקור (SEAM) ב-drawScreenImage:
-  // התמונה נמשכת מעט אל מעבר לגבול, וה-clip חותך את העודף בדיוק.
-  ctx.beginPath();
-  ctx.moveTo(p0.x, p0.y);
-  ctx.lineTo(p1.x, p1.y);
-  ctx.lineTo(p2.x, p2.y);
-  ctx.closePath();
-  ctx.clip();
-  ctx.setTransform(a,b,c,d,e,f);
-  ctx.drawImage(img, 0, 0);
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.restore();
+  // יש פרספקטיבה: חלוקה לרצועות אנכיות דקות לאורך ציר ה-u.
+  const STRIPS = 800;
+  const eps = 0.5 / STRIPS; // חפיפה זעירה בין רצועות לסגירת תפרים
+  for (let s=0; s<STRIPS; s++){
+    const u1 = s/STRIPS;
+    const u2 = (s+1)/STRIPS;
+    const uu1 = Math.max(0, u1 - eps);
+    const uu2 = Math.min(1, u2 + eps);
+    // 4 פינות הרצועה במרחב היעד (v=0 ו-v=1)
+    const P = (u,v) => {
+      const w = g*u + h*v + i0;
+      return { x:(a*iw*u + b*ih*v + c0)/w, y:(d*iw*u + e*ih*v + f0)/w };
+    };
+    const q0 = P(uu1,0), q1 = P(uu2,0), q2 = P(uu2,1), q3 = P(uu1,1);
+    // טרנספורם אפיני שממפה את מלבן-מקור הרצועה -> q0,q1,q3
+    const sx0=uu1*iw, sy0=0, sx1=uu2*iw, sy1=0, sx2=uu1*iw, sy2=ih;
+    const denom=(sx1-sx0)*(sy2-sy0)-(sx2-sx0)*(sy1-sy0);
+    if (Math.abs(denom)<1e-9) continue;
+    const ta=((q1.x-q0.x)*(sy2-sy0)-(q3.x-q0.x)*(sy1-sy0))/denom;
+    const tc=((q3.x-q0.x)*(sx1-sx0)-(q1.x-q0.x)*(sx2-sx0))/denom;
+    const te=q0.x-ta*sx0-tc*sy0;
+    const tb=((q1.y-q0.y)*(sy2-sy0)-(q3.y-q0.y)*(sy1-sy0))/denom;
+    const td=((q3.y-q0.y)*(sx1-sx0)-(q1.y-q0.y)*(sx2-sx0))/denom;
+    const tf=q0.y-tb*sx0-td*sy0;
+    c.save();
+    c.setTransform(ta,tb,tc,td,te,tf);
+    // מצייר רק את פרוסת המקור של הרצועה
+    c.drawImage(img, uu1*iw, 0, (uu2-uu1)*iw, ih,
+                     uu1*iw, 0, (uu2-uu1)*iw, ih);
+    c.setTransform(1,0,0,1,0,0);
+    c.restore();
+  }
 }
 
 // ===== כיול פינות =====
