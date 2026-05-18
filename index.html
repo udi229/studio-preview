@@ -484,6 +484,7 @@
   <div class="actions admin-only" style="margin-top:4px;">
     <button class="btn" id="addStudioBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4);">➕ הוסף אולפן חדש</button>
     <button class="btn alt" id="deleteStudioBtn">🗑️ מחק אולפן נוכחי</button>
+    <button class="btn" id="migrateBtn" style="display:none; background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4);">☁️ העבר את "כאן בשש" לענן</button>
   </div>
 </div>
 
@@ -623,6 +624,37 @@ async function deleteStudioFromCloud(cloudId) {
     .delete()
     .eq('id', cloudId);
   if (error) throw error;
+}
+
+// מעביר אולפן מובנה ל-Supabase עם בדיוק אותם נתונים (כיול, רקע, מידות)
+// נוצר כבר מפורסם - לא טיוטה - כי זה אולפן עובד קיים
+async function migrateBuiltinToCloud(tpl) {
+  if (!sb) throw new Error('אין חיבור ל-Supabase');
+  const { data, error } = await sb
+    .from('studio_templates')
+    .insert([{
+      name: tpl.name,
+      bg_data: tpl.bgB64,
+      screens: tpl.screens,        // אותן פינות כיול בדיוק
+      canvas_w: tpl.canvasW,       // אותן מידות בדיוק (1021)
+      canvas_h: tpl.canvasH,       // אותן מידות בדיוק (569)
+      published: true              // מפורסם מיד - אולפן עובד
+    }])
+    .select()
+    .single();
+  if (error) throw error;
+  const key = 'cloud_' + data.id;
+  TEMPLATES[key] = {
+    name: data.name,
+    published: data.published,
+    bgB64: data.bg_data,
+    canvasW: data.canvas_w,
+    canvasH: data.canvas_h,
+    screens: data.screens || [],
+    usageCount: data.usage_count || 0,
+    cloudId: data.id
+  };
+  return key;
 }
 
 // ===== מונה שימוש =====
@@ -786,6 +818,12 @@ async function toggleTemplatePublished(key) {
 }
 
 function switchTemplate(key) {
+  // הגנה: אם המפתח לא קיים (למשל studio3 הועבר לענן ונמחק) - בחר אולפן זמין
+  if (!TEMPLATES[key]) {
+    const avail = Object.keys(TEMPLATES);
+    if (avail.length === 0) return;
+    key = avail[0];
+  }
   currentTemplateKey = key;
   const tpl = TEMPLATES[key];
   canvas.width = tpl.canvasW;
@@ -1306,6 +1344,8 @@ function enterAdminMode() {
   adminBtn.classList.add('active');
   adminBtn.title = 'יציאה ממצב מנהל';
   renderTemplateSelector();
+  updateMigrateBtn();
+  renderUsageCounter();
 }
 
 adminBtn.addEventListener('click', () => {
@@ -1583,10 +1623,18 @@ function initSplash() {
 async function startApp() {
   loadSavedCalibrations();
   renderTemplateSelector();
-  switchTemplate(currentTemplateKey);
+  if (TEMPLATES[currentTemplateKey]) {
+    switchTemplate(currentTemplateKey);
+  }
   // טעינת אולפנים מהענן ברקע - לא חוסם את הממשק
   await loadStudiosFromCloud();
   renderTemplateSelector();
+  updateMigrateBtn();
+  // אם עדיין אין אולפן פעיל (למשל studio3 הועבר לענן) - בחר זמין
+  if (!TEMPLATES[currentTemplateKey]) {
+    const first = Object.keys(TEMPLATES)[0];
+    if (first) switchTemplate(first);
+  }
 }
 
 // ===== יצירת אולפן חדש =====
@@ -1733,6 +1781,57 @@ document.getElementById('deleteStudioBtn').addEventListener('click', async () =>
   } catch (err) {
     console.error('[מחיקת אולפן] שגיאה:', err);
     alert('שגיאה במחיקה: ' + (err.message || ''));
+  }
+});
+
+// ===== העברת "כאן בשש" המובנה לענן =====
+// מציג את כפתור ההעברה רק אם studio3 עדיין מובנה (לא הועבר עדיין)
+function updateMigrateBtn() {
+  const btn = document.getElementById('migrateBtn');
+  if (!btn) return;
+  const builtin = TEMPLATES['studio3'];
+  btn.style.display = (builtin && !builtin.cloudId) ? 'inline-flex' : 'none';
+}
+
+document.getElementById('migrateBtn').addEventListener('click', async () => {
+  const builtin = TEMPLATES['studio3'];
+  if (!builtin || builtin.cloudId) return;
+
+  if (!confirm('להעביר את "כאן בשש" לענן?\n\nהכיול, הרקע והמידות יישמרו בדיוק כמו שהם.\nאחרי ההעברה האולפן יהיה גלוי לכל הצוות עם מונה גלובלי.')) return;
+
+  const btn = document.getElementById('migrateBtn');
+  const origText = btn.textContent;
+  btn.textContent = '☁️ מעביר...';
+  btn.disabled = true;
+
+  try {
+    // 1. מעלה ל-Supabase עם כל הנתונים זהים
+    const newKey = await migrateBuiltinToCloud(builtin);
+
+    // 2. מעביר את המונה המקומי שהצטבר (אם היה) לערך ההתחלתי בענן
+    const localCount = getLocalUsage()['studio3'] || 0;
+    if (localCount > 0) {
+      TEMPLATES[newKey].usageCount = localCount;
+      try {
+        await updateStudioInCloud(TEMPLATES[newKey].cloudId, { usage_count: localCount });
+      } catch (e) { console.error('[העברה] שגיאת העברת מונה:', e); }
+    }
+
+    // 3. מסיר את הגרסה המובנה
+    delete TEMPLATES['studio3'];
+
+    // 4. עובר לגרסת הענן החדשה
+    switchTemplate(newKey);
+    renderTemplateSelector();
+    updateMigrateBtn();
+
+    btn.textContent = '✓ הועבר לענן!';
+    setTimeout(() => { btn.disabled = false; }, 500);
+  } catch (err) {
+    console.error('[העברה לענן] שגיאה:', err);
+    alert('שגיאה בהעברה: ' + (err.message || 'לא ניתן להעביר'));
+    btn.textContent = origText;
+    btn.disabled = false;
   }
 });
 
