@@ -33,6 +33,8 @@
     background: linear-gradient(180deg, rgba(10,10,15,.8) 0%, rgba(10,10,15,.6) 50%, rgba(10,10,15,.95) 100%);
   }
   .wrap { max-width: 1200px; margin: 0 auto; position: relative; z-index: 1; }
+  /* כשדף הנחיתה פעיל - הממשק הרגיל מוסתר כדי שלא יחפוף */
+  body.landing-on .wrap { display: none; }
 
   /* כפתור מנהל - איש קטן בפינה */
   .admin-btn {
@@ -1199,8 +1201,9 @@ function showLanding() {
   if (bg && !bg.style.backgroundImage) {
     bg.style.backgroundImage = `url('${LANDING_IMG_URL}')`;
   }
-  // יוצא ממצב אולפן - הרקע מתבהר חזרה
+  // יוצא ממצב אולפן - הרקע מתבהר, והממשק הרגיל מוסתר
   document.body.classList.remove('in-app');
+  document.body.classList.add('landing-on');
   renderLandingStudios();
   landing.classList.remove('gone', 'hide');
   landingActive = true;
@@ -1212,8 +1215,9 @@ function hideLanding() {
   if (!landing) return;
   landing.classList.add('hide');
   setTimeout(() => landing.classList.add('gone'), 450);
-  // נכנסים למצב אולפן - הרקע הקבוע מתעמעם חזק
+  // נכנסים למצב אולפן - הרקע מתעמעם, הממשק הרגיל מוצג
   document.body.classList.add('in-app');
+  document.body.classList.remove('landing-on');
   landingActive = false;
 }
 
