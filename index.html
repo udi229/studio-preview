@@ -47,7 +47,7 @@
     background: rgba(0,0,0,.7);
     display: none;
     align-items: center; justify-content: center;
-    z-index: 1000;
+    z-index: 9500;
     backdrop-filter: blur(4px);
   }
   .modal-overlay.show { display: flex; }
@@ -327,6 +327,78 @@
   #splash-screen.hide { opacity: 0; pointer-events: none; }
   #splash-screen.gone { display: none; }
   #splash-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* ===== LANDING PAGE - דף נחיתה ===== */
+  #landing {
+    position: fixed; inset: 0; z-index: 9000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start;
+    background: #05060a;
+    overflow: hidden;
+    transition: opacity .45s ease;
+  }
+  #landing.hide { opacity: 0; pointer-events: none; }
+  #landing.gone { display: none; }
+  #landing .landing-bg {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center;
+    filter: brightness(.55);
+  }
+  #landing .landing-bg::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(5,6,10,.55) 0%, rgba(5,6,10,.15) 35%, rgba(5,6,10,.85) 100%);
+  }
+  #landing .landing-inner {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column;
+    align-items: center;
+    width: 100%; height: 100%;
+    padding: 22px 16px;
+    box-sizing: border-box;
+  }
+  #landing .landing-title {
+    color: #fff; font-size: clamp(22px, 4vw, 40px);
+    font-weight: 800; letter-spacing: 1px;
+    text-shadow: 0 0 22px rgba(0,180,255,.6), 0 2px 8px rgba(0,0,0,.8);
+    margin: 6px 0 4px;
+  }
+  #landing .landing-sub {
+    color: #9fd6ff; font-size: clamp(12px, 1.8vw, 16px);
+    margin-bottom: 18px; text-shadow: 0 2px 6px rgba(0,0,0,.8);
+  }
+  #landing .landing-studios {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    justify-content: center; max-width: 760px;
+    margin-bottom: auto;
+  }
+  #landing .landing-studio-btn {
+    background: linear-gradient(135deg, #1c3a6e, #3a7bd0);
+    color: #fff; border: 1px solid rgba(120,200,255,.5);
+    border-radius: 10px; padding: 11px 22px;
+    font-size: clamp(14px, 2vw, 17px); font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 3px 14px rgba(40,120,220,.45), 0 0 0 rgba(0,200,255,0);
+    transition: transform .12s ease, box-shadow .2s ease;
+  }
+  #landing .landing-studio-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(60,160,255,.7), 0 0 18px rgba(0,200,255,.4);
+  }
+  #landing .landing-studio-btn.draft {
+    background: linear-gradient(135deg, #5a4a1c, #c0902a);
+    border-color: rgba(255,210,120,.5);
+  }
+  #landing .landing-empty {
+    color: #cfe6ff; font-size: clamp(14px, 2vw, 18px);
+    background: rgba(10,14,22,.7);
+    border: 1px solid rgba(120,180,255,.3);
+    border-radius: 12px; padding: 18px 26px;
+    text-align: center; max-width: 420px;
+  }
+  #landing .landing-foot {
+    color: #7fb8e8; font-size: clamp(11px, 1.6vw, 14px);
+    text-shadow: 0 2px 6px rgba(0,0,0,.8);
+    margin-top: 14px;
+  }
   /* ===== מודאל יצירת אולפן ===== */
   .modal-box {
     background: linear-gradient(135deg, #1a1f2e, #232843);
@@ -426,6 +498,17 @@
 <!-- SPLASH SCREEN -->
 <div id="splash-screen">
   <canvas id="splash-canvas"></canvas>
+</div>
+<!-- LANDING PAGE - דף נחיתה -->
+<div id="landing" class="gone">
+  <div class="landing-bg" id="landingBg"></div>
+  <div class="landing-inner">
+    <button class="admin-btn" id="landingAdminBtn" title="כניסת מנהל" style="z-index:5;">👤</button>
+    <div class="landing-title">🎬 תצוגה מקדימה</div>
+    <div class="landing-sub">בחר אולפן כדי להתחיל</div>
+    <div class="landing-studios" id="landingStudios"></div>
+    <div class="landing-foot">תצוגה מקדימה במסכי האולפן</div>
+  </div>
 </div>
 <!-- מודאל קוד מנהל -->
 <div class="modal-overlay" id="adminModal">
@@ -684,6 +767,7 @@ async function refreshStudiosFromCloud() {
         renderTemplateSelector();
         updateMigrateBtn();
         renderUsageCounter();
+        if (landingActive) renderLandingStudios();
         console.log('[Sync] עודכנו שינויים קלים מהענן');
       }
       return listChanged;
@@ -771,7 +855,7 @@ async function refreshStudiosFromCloud() {
     });
 
     // החלת השינויים על הממשק
-    if (activeChanged) {
+    if (activeChanged && !landingActive) {
       if (TEMPLATES[currentTemplateKey]) {
         // האולפן הפעיל עודכן - טוענים מחדש את הרקע (בעצלות) והקנבס
         const tpl = TEMPLATES[currentTemplateKey];
@@ -794,15 +878,15 @@ async function refreshStudiosFromCloud() {
           bgImage.src = bgData;
         });
       } else {
-        // האולפן הפעיל נמחק - עוברים לאולפן זמין אחר
-        const firstKey = Object.keys(TEMPLATES)[0];
-        if (firstKey) switchTemplate(firstKey);
+        // האולפן הפעיל נמחק - חוזרים לדף הנחיתה
+        showLanding();
       }
     }
     if (listChanged) {
       renderTemplateSelector();
       updateMigrateBtn();
       renderUsageCounter();
+      if (landingActive) renderLandingStudios();
     }
 
     if (activeChanged || listChanged) {
@@ -1058,6 +1142,64 @@ let previewLook = false; // מצב "איך זה ייראה" - תצוגה סופ�
 let usageCountedThisSession = false; // נספרה כבר בדיקה בסשן הנוכחי?
 
 // ===== מערכת תבניות =====
+// ===== דף נחיתה =====
+const LANDING_IMG_URL = 'studio-landing.jpg';  // העלה קובץ זה ל-GitHub Pages
+let landingActive = false;  // האם דף הנחיתה מוצג כרגע
+
+// מצייר את כפתורי האולפנים הזמינים על דף הנחיתה
+function renderLandingStudios() {
+  const box = document.getElementById('landingStudios');
+  if (!box) return;
+  box.innerHTML = '';
+  const entries = Object.entries(TEMPLATES).filter(([key]) => {
+    // משתמש רגיל רואה רק אולפנים מפורסמים; מנהל רואה הכל
+    return isAdmin || isTemplatePublished(key);
+  });
+
+  if (entries.length === 0) {
+    // אין אולפנים לפרסום - מציגים הודעה במקום כפתורים
+    const empty = document.createElement('div');
+    empty.className = 'landing-empty';
+    empty.textContent = 'אין כרגע אולפנים זמינים לתצוגה. נסה שוב מאוחר יותר.';
+    box.appendChild(empty);
+    return;
+  }
+
+  entries.forEach(([key, tpl]) => {
+    const isPub = isTemplatePublished(key);
+    const btn = document.createElement('button');
+    btn.className = 'landing-studio-btn' + (isAdmin && !isPub ? ' draft' : '');
+    btn.textContent = tpl.name + (isAdmin && !isPub ? '  🔒' : '');
+    btn.onclick = () => {
+      hideLanding();
+      switchTemplate(key);
+    };
+    box.appendChild(btn);
+  });
+}
+
+// מציג את דף הנחיתה
+function showLanding() {
+  const landing = document.getElementById('landing');
+  const bg = document.getElementById('landingBg');
+  if (!landing) return;
+  if (bg && !bg.style.backgroundImage) {
+    bg.style.backgroundImage = `url('${LANDING_IMG_URL}')`;
+  }
+  renderLandingStudios();
+  landing.classList.remove('gone', 'hide');
+  landingActive = true;
+}
+
+// מסתיר את דף הנחיתה (במעבר חלק)
+function hideLanding() {
+  const landing = document.getElementById('landing');
+  if (!landing) return;
+  landing.classList.add('hide');
+  setTimeout(() => landing.classList.add('gone'), 450);
+  landingActive = false;
+}
+
 function renderTemplateSelector() {
   const sel = document.getElementById('templateSelector');
   sel.innerHTML = '';
@@ -1690,10 +1832,15 @@ function exitAdminMode() {
   adminBtn.title = 'כניסת מנהל';
   // אם היה במצב כיול - לסגור
   if (calMode) document.getElementById('toggleCal').click();
-  // אם התבנית הנוכחית היא טיוטה - לעבור לראשונה המפורסמת
-  if (!isTemplatePublished(currentTemplateKey)) {
+  // אם דף הנחיתה פעיל - רק לרענן את הכפתורים (להסתיר טיוטות)
+  if (landingActive) {
+    renderLandingStudios();
+  } else if (!isTemplatePublished(currentTemplateKey)) {
+    // התבנית הנוכחית היא טיוטה - לעבור לראשונה המפורסמת,
+    // ואם אין מפורסמת - לחזור לדף הנחיתה
     const firstPub = Object.keys(TEMPLATES).find(k => isTemplatePublished(k));
     if (firstPub) switchTemplate(firstPub);
+    else showLanding();
   }
   renderTemplateSelector();
 }
@@ -1705,9 +1852,20 @@ function enterAdminMode() {
   renderTemplateSelector();
   updateMigrateBtn();
   renderUsageCounter();
+  // אם דף הנחיתה פעיל - לרענן כדי להציג גם טיוטות
+  if (landingActive) renderLandingStudios();
 }
 
 adminBtn.addEventListener('click', () => {
+  if (isAdmin) {
+    if (confirm('לצאת ממצב מנהל?')) exitAdminMode();
+  } else {
+    openAdminModal();
+  }
+});
+
+// כפתור המנהל שעל דף הנחיתה - אותה התנהגות
+document.getElementById('landingAdminBtn').addEventListener('click', () => {
   if (isAdmin) {
     if (confirm('לצאת ממצב מנהל?')) exitAdminMode();
   } else {
@@ -1982,18 +2140,15 @@ function initSplash() {
 async function startApp() {
   loadSavedCalibrations();
   renderTemplateSelector();
-  if (TEMPLATES[currentTemplateKey]) {
-    switchTemplate(currentTemplateKey);
-  }
+  // מציגים את דף הנחיתה - לא עוברים אוטומטית לאולפן.
+  // המשתמש בוחר אולפן מדף הנחיתה כדי להתחיל.
+  showLanding();
   // טעינת אולפנים מהענן ברקע - לא חוסם את הממשק
   await loadStudiosFromCloud();
   renderTemplateSelector();
   updateMigrateBtn();
-  // אם עדיין אין אולפן פעיל (למשל studio3 הועבר לענן) - בחר זמין
-  if (!TEMPLATES[currentTemplateKey]) {
-    const first = Object.keys(TEMPLATES)[0];
-    if (first) switchTemplate(first);
-  }
+  // רענון כפתורי דף הנחיתה אחרי שהאולפנים מהענן נטענו
+  if (landingActive) renderLandingStudios();
   // הפעלת סנכרון אוטומטי - עדכון שינויים מהענן כל דקה
   startAutoSync();
 }
