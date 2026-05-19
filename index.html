@@ -12,7 +12,27 @@
     min-height: 100vh;
     padding: 16px;
   }
-  .wrap { max-width: 1200px; margin: 0 auto; position: relative; }
+  /* ===== רקע קבוע - תמונת האולפן מאחורי כל הממשק ===== */
+  #appBg {
+    position: fixed; inset: 0; z-index: 0;
+    background-size: contain; background-position: center top;
+    background-repeat: no-repeat;
+    background-color: #0a0a0f;
+    filter: brightness(.72);
+    transition: filter .5s ease;
+    pointer-events: none;
+  }
+  /* כשנמצאים בתצוגת אולפן - הרקע מתעמעם חזק כדי לא להתחרות */
+  body.in-app #appBg { filter: brightness(.3); }
+  #appBg::after {
+    content: ''; position: fixed; inset: 0;
+    background: linear-gradient(180deg, rgba(10,10,15,.55) 0%, rgba(10,10,15,.2) 35%, rgba(10,10,15,.9) 100%);
+    transition: background .5s ease;
+  }
+  body.in-app #appBg::after {
+    background: linear-gradient(180deg, rgba(10,10,15,.8) 0%, rgba(10,10,15,.6) 50%, rgba(10,10,15,.95) 100%);
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; position: relative; z-index: 1; }
 
   /* כפתור מנהל - איש קטן בפינה */
   .admin-btn {
@@ -332,22 +352,12 @@
     position: fixed; inset: 0; z-index: 9000;
     display: flex; flex-direction: column;
     align-items: center; justify-content: flex-start;
-    background: #05060a;
+    background: transparent;
     overflow: hidden;
     transition: opacity .45s ease;
   }
   #landing.hide { opacity: 0; pointer-events: none; }
   #landing.gone { display: none; }
-  #landing .landing-bg {
-    position: absolute; inset: 0;
-    background-size: contain; background-position: center;
-    background-repeat: no-repeat;
-    filter: brightness(.72);
-  }
-  #landing .landing-bg::after {
-    content: ''; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(5,6,10,.55) 0%, rgba(5,6,10,.15) 35%, rgba(5,6,10,.85) 100%);
-  }
   #landing .landing-inner {
     position: relative; z-index: 2;
     display: flex; flex-direction: column;
@@ -496,13 +506,14 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+<!-- רקע קבוע - תמונת האולפן מאחורי כל הממשק -->
+<div id="appBg"></div>
 <!-- SPLASH SCREEN -->
 <div id="splash-screen">
   <canvas id="splash-canvas"></canvas>
 </div>
 <!-- LANDING PAGE - דף נחיתה -->
 <div id="landing" class="gone">
-  <div class="landing-bg" id="landingBg"></div>
   <div class="landing-inner">
     <button class="admin-btn" id="landingAdminBtn" title="כניסת מנהל" style="z-index:5;">👤</button>
     <div class="landing-title">🎬 תצוגה מקדימה</div>
@@ -1182,22 +1193,27 @@ function renderLandingStudios() {
 // מציג את דף הנחיתה
 function showLanding() {
   const landing = document.getElementById('landing');
-  const bg = document.getElementById('landingBg');
+  const bg = document.getElementById('appBg');
   if (!landing) return;
+  // קובע את תמונת הרקע הקבועה (פעם אחת)
   if (bg && !bg.style.backgroundImage) {
     bg.style.backgroundImage = `url('${LANDING_IMG_URL}')`;
   }
+  // יוצא ממצב אולפן - הרקע מתבהר חזרה
+  document.body.classList.remove('in-app');
   renderLandingStudios();
   landing.classList.remove('gone', 'hide');
   landingActive = true;
 }
 
-// מסתיר את דף הנחיתה (במעבר חלק)
+// מסתיר את דף הנחיתה (במעבר חלק) ונכנס למצב אולפן
 function hideLanding() {
   const landing = document.getElementById('landing');
   if (!landing) return;
   landing.classList.add('hide');
   setTimeout(() => landing.classList.add('gone'), 450);
+  // נכנסים למצב אולפן - הרקע הקבוע מתעמעם חזק
+  document.body.classList.add('in-app');
   landingActive = false;
 }
 
