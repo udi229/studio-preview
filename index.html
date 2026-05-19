@@ -340,8 +340,9 @@
   #landing.gone { display: none; }
   #landing .landing-bg {
     position: absolute; inset: 0;
-    background-size: cover; background-position: center;
-    filter: brightness(.55);
+    background-size: contain; background-position: center;
+    background-repeat: no-repeat;
+    filter: brightness(.72);
   }
   #landing .landing-bg::after {
     content: ''; position: absolute; inset: 0;
