@@ -546,12 +546,15 @@ try {
 }
 
 // טוען את כל האולפנים מ-Supabase וממזג אותם ל-TEMPLATES
+// טעינה ראשונית - מושכת את כל האולפנים בלי תמונות הרקע (bg_data)
+// כדי לחסוך egress. תמונת הרקע של אולפן נטענת רק כשבוחרים בו
+// (lazy loading) דרך ensureStudioBg.
 async function loadStudiosFromCloud() {
   if (!sb) return;
   try {
     const { data, error } = await sb
       .from('studio_templates')
-      .select('*')
+      .select('id, name, published, canvas_w, canvas_h, screens, usage_count')
       .order('created_at', { ascending: true });
     if (error) {
       console.error('[Supabase] שגיאת טעינה:', error);
@@ -562,7 +565,8 @@ async function loadStudiosFromCloud() {
       TEMPLATES[key] = {
         name: row.name,
         published: row.published,
-        bgB64: row.bg_data,
+        bgB64: null,            // נטען בעצלות (lazy) כשבוחרים את האולפן
+        bgLoaded: false,        // האם תמונת הרקע כבר נמשכה מהענן
         canvasW: row.canvas_w || 1016,
         canvasH: row.canvas_h || 576,
         screens: row.screens || [],
@@ -573,6 +577,325 @@ async function loadStudiosFromCloud() {
   } catch (err) {
     console.error('[Supabase] שגיאת טעינה:', err);
   }
+}
+
+// מושכת את תמונת הרקע של אולפן בודד מהענן, רק אם עוד לא נטענה.
+// זו הבקשה ה"כבדה" - מתבצעת פעם אחת לכל אולפן, כשבוחרים בו.
+async function ensureStudioBg(key) {
+  const tpl = TEMPLATES[key];
+  if (!tpl) return null;
+  // אולפן מובנה (לא ענן) - הרקע כבר קיים מקומית
+  if (!tpl.cloudId) return tpl.bgB64;
+  // כבר נטען - מחזירים מהזיכרון, בלי בקשה נוספת
+  if (tpl.bgLoaded && tpl.bgB64) return tpl.bgB64;
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb
+      .from('studio_templates')
+      .select('bg_data')
+      .eq('id', tpl.cloudId)
+      .single();
+    if (error) {
+      console.error('[Lazy] שגיאת טעינת רקע:', error);
+      return null;
+    }
+    tpl.bgB64 = data ? data.bg_data : null;
+    tpl.bgLoaded = true;
+    return tpl.bgB64;
+  } catch (err) {
+    console.error('[Lazy] שגיאת טעינת רקע:', err);
+    return null;
+  }
+}
+
+// ====================================================
+// ===== סנכרון אוטומטי - עדכון שינויים בלי רענון =====
+// ====================================================
+// מרענן את האולפנים מהענן כל דקה. אם המשתמש לא פעיל 3 דקות
+// הסנכרון נעצר כדי לא ליצור עומס, וכשהוא חוזר - מתעדכן מיד
+// וחוזר לשגרה.
+
+const SYNC_INTERVAL_MS = 60 * 1000;       // רענון כל דקה
+const IDLE_TIMEOUT_MS = 3 * 60 * 1000;    // 3 דקות חוסר פעילות = השהיה
+let syncTimerId = null;                   // מזהה הטיימר הפעיל
+let syncPaused = false;                   // האם הסנכרון מושהה כרגע
+let lastActivityTs = Date.now();          // זמן הפעילות האחרון של המשתמש
+let syncInFlight = false;                 // מונע רענונים חופפים
+// חתימת המצב מהבדיקה הקלה האחרונה - לזיהוי שינויים בלי משיכה מלאה
+let lastSyncSignature = null;
+// דגל שמאלץ משיכה מלאה ברענון הבא (מופעל ע"י התראת Realtime)
+let forceFullFetch = false;
+
+// בונה "חתימה" קומפקטית מרשומות הבדיקה הקלה. כל שינוי במספר
+// האולפנים או בחותמת הזמן של אחד מהם ייצור חתימה שונה.
+function buildSyncSignature(rows) {
+  return (rows || [])
+    .map(r => r.id + ':' + (r.updated_at || ''))
+    .sort()
+    .join('|');
+}
+
+// שלב 1 - בדיקה קלה: מושכת רק שדות מטא קטנים (בלי תמונות הרקע
+// והכיול הכבדים). מזהה אם משהו השתנה ורק אז עוברת למשיכה מלאה.
+// כך ברוב הדקות הבקשה היא כמה מאות בייטים בלבד.
+async function refreshStudiosFromCloud() {
+  if (!sb || syncInFlight) return false;
+  syncInFlight = true;
+  try {
+    // בקשה קלה - בלי bg_data ובלי screens (השדות הכבדים)
+    const { data: lightRows, error: lightErr } = await sb
+      .from('studio_templates')
+      .select('id, updated_at, published, name, usage_count')
+      .order('created_at', { ascending: true });
+    if (lightErr) {
+      console.error('[Sync] שגיאת בדיקה:', lightErr);
+      return false;
+    }
+
+    const light = lightRows || [];
+    const signature = buildSyncSignature(light);
+
+    // עדכון מיידי של שינויים "קלים" שכבר הגיעו בבדיקה עצמה -
+    // שם, מצב פרסום ומונה שימוש. אלה לא דורשים משיכה מלאה.
+    let listChanged = false;
+    light.forEach(row => {
+      const tpl = TEMPLATES['cloud_' + row.id];
+      if (!tpl) return;
+      if (tpl.name !== row.name) { tpl.name = row.name; listChanged = true; }
+      if (tpl.published !== row.published) { tpl.published = row.published; listChanged = true; }
+      if ((tpl.usageCount || 0) !== (row.usage_count || 0)) {
+        tpl.usageCount = row.usage_count || 0;
+        listChanged = true;
+      }
+    });
+
+    // האם יש שינוי שדורש משיכה מלאה? (אולפן נוסף/נמחק או חותמת
+    // זמן שהתקדמה = רקע/כיול/מידות השתנו). דגל forceFullFetch
+    // מאלץ משיכה גם אם החתימה לא השתנתה (התראת Realtime).
+    const signatureChanged =
+      (lastSyncSignature !== null && lastSyncSignature !== signature);
+    const needsFullFetch = signatureChanged || forceFullFetch;
+    lastSyncSignature = signature;
+    forceFullFetch = false;   // איפוס לאחר שנלקח בחשבון
+
+    if (!needsFullFetch) {
+      // שום שינוי מהותי - רק רענון תצוגה אם השתנה שם/פרסום/מונה
+      if (listChanged) {
+        renderTemplateSelector();
+        updateMigrateBtn();
+        renderUsageCounter();
+        console.log('[Sync] עודכנו שינויים קלים מהענן');
+      }
+      return listChanged;
+    }
+
+    // שלב 2 - משיכה מלאה: רק כאשר זוהה שינוי מהותי.
+    // עדיין בלי bg_data - תמונות הרקע נטענות בעצלות (lazy) בנפרד.
+    console.log('[Sync] זוהה שינוי - מושך נתונים מלאים');
+    const { data, error } = await sb
+      .from('studio_templates')
+      .select('id, name, published, canvas_w, canvas_h, screens, usage_count')
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[Sync] שגיאת רענון מלא:', error);
+      return false;
+    }
+
+    const rows = data || [];
+    const cloudKeys = new Set();
+    let activeChanged = false;   // האם האולפן שהמשתמש צופה בו השתנה
+
+    rows.forEach(row => {
+      const key = 'cloud_' + row.id;
+      cloudKeys.add(key);
+      const incoming = {
+        name: row.name,
+        published: row.published,
+        canvasW: row.canvas_w || 1016,
+        canvasH: row.canvas_h || 576,
+        screens: row.screens || [],
+        usageCount: row.usage_count || 0,
+        cloudId: row.id
+      };
+      const existing = TEMPLATES[key];
+
+      if (!existing) {
+        // אולפן חדש שנוסף בענן - הרקע ייטען בעצלות כשבוחרים בו
+        incoming.bgB64 = null;
+        incoming.bgLoaded = false;
+        TEMPLATES[key] = incoming;
+        listChanged = true;
+        return;
+      }
+
+      // האם זה האולפן שהמשתמש צופה בו כרגע?
+      const isActive = (key === currentTemplateKey);
+      // האם המשתמש באמצע עבודה על האולפן הזה (כיול או תמונות שהועלו)?
+      const userBusyHere = isActive &&
+        (calMode || userImages.some(im => im !== null));
+
+      // שינוי בשם / מצב פרסום / מונה - תמיד בטוח לעדכן
+      if (existing.name !== incoming.name) { existing.name = incoming.name; listChanged = true; }
+      if (existing.published !== incoming.published) { existing.published = incoming.published; listChanged = true; }
+      existing.usageCount = incoming.usageCount;
+
+      // שינוי במידות / כיול - מעדכנים רק אם המשתמש לא באמצע
+      // עבודה על האולפן הזה, כדי לא לדרוס לו גרירת פינות או תמונות
+      if (!userBusyHere) {
+        const screensChanged =
+          JSON.stringify(existing.screens) !== JSON.stringify(incoming.screens);
+        const sizeChanged =
+          existing.canvasW !== incoming.canvasW || existing.canvasH !== incoming.canvasH;
+        if (screensChanged || sizeChanged) {
+          existing.screens = incoming.screens;
+          existing.canvasW = incoming.canvasW;
+          existing.canvasH = incoming.canvasH;
+          if (isActive) activeChanged = true;
+        }
+        // הרשומה השתנתה בענן - ייתכן שגם תמונת הרקע. מסמנים
+        // שהרקע צריך טעינה מחדש (ייטען בעצלות בעת הצורך).
+        existing.bgLoaded = false;
+        existing.bgB64 = null;
+        if (isActive) activeChanged = true;
+      }
+    });
+
+    // אולפנים שנמחקו מהענן - מוחקים גם מקומית
+    Object.keys(TEMPLATES).forEach(key => {
+      const tpl = TEMPLATES[key];
+      if (tpl && tpl.cloudId && !cloudKeys.has(key)) {
+        delete TEMPLATES[key];
+        listChanged = true;
+        if (key === currentTemplateKey) activeChanged = true;
+      }
+    });
+
+    // החלת השינויים על הממשק
+    if (activeChanged) {
+      if (TEMPLATES[currentTemplateKey]) {
+        // האולפן הפעיל עודכן - טוענים מחדש את הרקע (בעצלות) והקנבס
+        const tpl = TEMPLATES[currentTemplateKey];
+        const activeKey = currentTemplateKey;
+        canvas.width = tpl.canvasW;
+        canvas.height = tpl.canvasH;
+        document.getElementById('stage').style.aspectRatio =
+          `${tpl.canvasW} / ${tpl.canvasH}`;
+        render();
+        if (calMode) renderCorners();
+        // מושכים את הרקע המעודכן ומציירים מחדש כשהוא מגיע
+        ensureStudioBg(activeKey).then(bgData => {
+          if (currentTemplateKey !== activeKey || !bgData) return;
+          bgImage = new Image();
+          bgImage.onload = () => {
+            if (currentTemplateKey !== activeKey) return;
+            render();
+            if (calMode) renderCorners();
+          };
+          bgImage.src = bgData;
+        });
+      } else {
+        // האולפן הפעיל נמחק - עוברים לאולפן זמין אחר
+        const firstKey = Object.keys(TEMPLATES)[0];
+        if (firstKey) switchTemplate(firstKey);
+      }
+    }
+    if (listChanged) {
+      renderTemplateSelector();
+      updateMigrateBtn();
+      renderUsageCounter();
+    }
+
+    if (activeChanged || listChanged) {
+      console.log('[Sync] עודכנו שינויים מהענן');
+    }
+    return activeChanged || listChanged;
+  } catch (err) {
+    console.error('[Sync] שגיאת רענון:', err);
+    return false;
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+// מסמן פעילות משתמש. אם הסנכרון היה מושהה - מחזיר אותו לפעולה,
+// קודם מבצע רענון מיידי ואז חוזר לשגרת הדקה.
+function markActivity() {
+  lastActivityTs = Date.now();
+  if (syncPaused) {
+    syncPaused = false;
+    console.log('[Sync] המשתמש חזר - רענון מיידי וחזרה לשגרה');
+    refreshStudiosFromCloud();   // עדכון מיידי לפני חזרה למחזור
+    scheduleNextSync();
+  }
+}
+
+// קובע את הרענון הבא. אם עברו 3 דקות בלי פעילות - משהה במקום לתזמן.
+function scheduleNextSync() {
+  if (syncTimerId) { clearTimeout(syncTimerId); syncTimerId = null; }
+  syncTimerId = setTimeout(async () => {
+    const idleFor = Date.now() - lastActivityTs;
+    if (idleFor >= IDLE_TIMEOUT_MS) {
+      // המשתמש לא פעיל - משהים את הסנכרון עד שיחזור
+      syncPaused = true;
+      console.log('[Sync] אין פעילות 3 דקות - הסנכרון מושהה');
+      return;
+    }
+    await refreshStudiosFromCloud();
+    scheduleNextSync();
+  }, SYNC_INTERVAL_MS);
+}
+
+// ===== שכבת Realtime - עדכון מיידי בעת שינוי =====
+// נרשמת לשינויים בטבלת studio_templates. ברגע שמישהו משנה
+// אולפן (פרסום/הסתרה, כיול, רקע) - מגיעה התראה מיידית במקום
+// להמתין לרענון הדקתי. ה-polling נשאר ברקע כרשת ביטחון.
+let realtimeChannel = null;
+
+function startRealtimeSync() {
+  if (!sb) return;
+  try {
+    realtimeChannel = sb
+      .channel('studio_templates_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'studio_templates' },
+        (payload) => {
+          console.log('[Realtime] התקבל שינוי:', payload.eventType);
+          // מפעילים את אותה לוגיקת מיזוג חכם של ה-polling.
+          // מאלצים משיכה מלאה כדי לקלוט גם שינויי כיול/רקע.
+          forceFullFetch = true;
+          // אם רענון כבר רץ כרגע - מנסים שוב מיד אחרי שהוא מסתיים
+          if (syncInFlight) {
+            setTimeout(() => { if (forceFullFetch) refreshStudiosFromCloud(); }, 500);
+          } else {
+            refreshStudiosFromCloud();
+          }
+        })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Realtime] מחובר - עדכונים מיידיים פעילים');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // אם Realtime לא זמין - לא נורא, ה-polling מכסה
+          console.warn('[Realtime] לא זמין - נסמך על רענון דקתי');
+        }
+      });
+  } catch (err) {
+    console.warn('[Realtime] שגיאת חיבור - נסמך על רענון דקתי:', err);
+  }
+}
+
+// מפעיל את מערכת הסנכרון: מאזין לפעילות המשתמש ומתחיל את המחזור
+function startAutoSync() {
+  const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+  activityEvents.forEach(ev => {
+    window.addEventListener(ev, markActivity, { passive: true });
+  });
+  // חזרה ללשונית הדפדפן נחשבת פעילות גם היא
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') markActivity();
+  });
+  lastActivityTs = Date.now();
+  scheduleNextSync();        // שכבת ה-polling - רשת ביטחון
+  startRealtimeSync();       // שכבת Realtime - עדכון מיידי
 }
 
 // יוצר אולפן חדש ב-Supabase ומחזיר את המפתח שלו
@@ -596,6 +919,7 @@ async function createStudioInCloud(name, bgB64, screens, canvasW, canvasH) {
     name: data.name,
     published: data.published,
     bgB64: data.bg_data,
+    bgLoaded: true,           // הרקע כבר בזיכרון מרגע היצירה
     canvasW: data.canvas_w,
     canvasH: data.canvas_h,
     screens: data.screens || [],
@@ -648,6 +972,7 @@ async function migrateBuiltinToCloud(tpl) {
     name: data.name,
     published: data.published,
     bgB64: data.bg_data,
+    bgLoaded: true,           // הרקע כבר בזיכרון מרגע ההעברה
     canvasW: data.canvas_w,
     canvasH: data.canvas_h,
     screens: data.screens || [],
@@ -817,7 +1142,9 @@ async function toggleTemplatePublished(key) {
   renderTemplateSelector();
 }
 
-function switchTemplate(key) {
+let switchToken = 0;  // מונע מירוץ כשמחליפים אולפנים במהירות
+
+async function switchTemplate(key) {
   // הגנה: אם המפתח לא קיים (למשל studio3 הועבר לענן ונמחק) - בחר אולפן זמין
   if (!TEMPLATES[key]) {
     const avail = Object.keys(TEMPLATES);
@@ -834,18 +1161,60 @@ function switchTemplate(key) {
   usageCountedThisSession = false; // סשן חדש - מאפשר ספירה מחדש
   const tpBtn = document.getElementById('togglePreview');
   if (tpBtn) tpBtn.textContent = '🙈 הסתר תמונות';
-  
-  bgImage = new Image();
-  bgImage.onload = () => {
-    render();
-    if (calMode) renderCorners();
-  };
-  bgImage.src = tpl.bgB64;
-  
+
   renderTemplateSelector();
   renderUploaders();
   updateDownloadBtn();
   renderUsageCounter();
+
+  // טעינת תמונת הרקע - עצלה. אם הרקע כבר בזיכרון, מיידי; אחרת
+  // מציגים אינדיקציית טעינה ומושכים מהענן רק את האולפן הזה.
+  const myToken = ++switchToken;
+  const alreadyLoaded = (!tpl.cloudId) || (tpl.bgLoaded && tpl.bgB64);
+  if (!alreadyLoaded) showStageLoading(true);
+
+  const bgData = await ensureStudioBg(key);
+
+  // אם המשתמש כבר עבר לאולפן אחר בינתיים - לא מציירים את הישן
+  if (myToken !== switchToken) return;
+  showStageLoading(false);
+
+  bgImage = new Image();
+  bgImage.onload = () => {
+    if (myToken !== switchToken) return;
+    render();
+    if (calMode) renderCorners();
+  };
+  if (bgData) {
+    bgImage.src = bgData;
+  } else {
+    // לא ניתן לטעון רקע - מציירים בכל זאת (מסכים על רקע שחור)
+    render();
+    if (calMode) renderCorners();
+  }
+}
+
+// מציג / מסתיר אינדיקציית טעינה על הבמה
+function showStageLoading(on) {
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  let el = document.getElementById('stageLoading');
+  if (on) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'stageLoading';
+      el.style.cssText =
+        'position:absolute;inset:0;display:flex;align-items:center;' +
+        'justify-content:center;background:rgba(10,10,15,.85);' +
+        'color:#6fd0ff;font-size:15px;font-weight:600;z-index:20;' +
+        'border-radius:10px;letter-spacing:.5px;';
+      el.textContent = '⏳ טוען אולפן...';
+      stage.appendChild(el);
+    }
+    el.style.display = 'flex';
+  } else if (el) {
+    el.style.display = 'none';
+  }
 }
 
 function getCurrentTemplate() {
@@ -1625,6 +1994,8 @@ async function startApp() {
     const first = Object.keys(TEMPLATES)[0];
     if (first) switchTemplate(first);
   }
+  // הפעלת סנכרון אוטומטי - עדכון שינויים מהענן כל דקה
+  startAutoSync();
 }
 
 // ===== יצירת אולפן חדש =====
