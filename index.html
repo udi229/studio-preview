@@ -1997,8 +1997,10 @@ function drawScreenImage(img, corners) {
   ctx.restore();
 
   // ---- שלב 2: ציור התמונה ברצועות אנכיות ----
-  // עבור וידאו - פחות strips (60) לביצועים. עבור תמונה - 200 לאיכות.
-  const STRIPS = isVideo ? 60 : 200;
+  // עבור וידאו - פחות strips (80) לביצועים. עבור תמונה - 200 לאיכות.
+  const STRIPS = isVideo ? 80 : 200;
+  // חפיפה קטנה בין רצועות כדי להסתיר תפרים (sub-pixel). לוידאו 0.7px, לתמונה 0.
+  const OVERLAP = isVideo ? 0.7 : 0;
 
   for (let s = 0; s < STRIPS; s++) {
     const u1 = s / STRIPS;
@@ -2009,6 +2011,22 @@ function drawScreenImage(img, corners) {
     const topR = lerpPt(tl, tr, u2);
     const botL = lerpPt(bl, br, u1);
     const botR = lerpPt(bl, br, u2);
+
+    // הרחבת ה-clip בכיוון אופקי (פנימה לתוך השכן) - מסתיר תפרים
+    // מחשבים וקטור יחידה בכיוון הרצועה ומזיזים את 4 הפינות פנימה
+    let clipTopL = topL, clipTopR = topR, clipBotL = botL, clipBotR = botR;
+    if (OVERLAP > 0) {
+      const dxT = topR.x - topL.x, dyT = topR.y - topL.y;
+      const lenT = Math.hypot(dxT, dyT) || 1;
+      const oxT = (dxT / lenT) * OVERLAP, oyT = (dyT / lenT) * OVERLAP;
+      const dxB = botR.x - botL.x, dyB = botR.y - botL.y;
+      const lenB = Math.hypot(dxB, dyB) || 1;
+      const oxB = (dxB / lenB) * OVERLAP, oyB = (dyB / lenB) * OVERLAP;
+      clipTopL = { x: topL.x - oxT, y: topL.y - oyT };
+      clipTopR = { x: topR.x + oxT, y: topR.y + oyT };
+      clipBotL = { x: botL.x - oxB, y: botL.y - oyB };
+      clipBotR = { x: botR.x + oxB, y: botR.y + oyB };
+    }
 
     // פרוסת מקור (רצועה אנכית מהתמונה)
     const sx = u1 * iw;
@@ -2029,16 +2047,16 @@ function drawScreenImage(img, corners) {
 
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(topL.x, topL.y);
-    ctx.lineTo(topR.x, topR.y);
-    ctx.lineTo(botR.x, botR.y);
-    ctx.lineTo(botL.x, botL.y);
+    ctx.moveTo(clipTopL.x, clipTopL.y);
+    ctx.lineTo(clipTopR.x, clipTopR.y);
+    ctx.lineTo(clipBotR.x, clipBotR.y);
+    ctx.lineTo(clipBotL.x, clipBotL.y);
     ctx.closePath();
     ctx.clip();
     ctx.setTransform(a, b, c, d, e, f);
-    // לוידאו - smoothing מהיר יותר. לתמונה - איכות גבוהה.
+    // לוידאו - medium לאיזון. לתמונה - high.
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = isVideo ? 'low' : 'high';
+    ctx.imageSmoothingQuality = isVideo ? 'medium' : 'high';
     ctx.drawImage(source, 0, 0);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.restore();
