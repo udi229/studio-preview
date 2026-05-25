@@ -728,7 +728,6 @@
   <div class="actions admin-only" style="margin-top:4px;">
     <button class="btn" id="addStudioBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4);">➕ הוסף אולפן חדש</button>
     <button class="btn alt" id="deleteStudioBtn">🗑️ מחק אולפן נוכחי</button>
-    <button class="btn" id="migrateBtn" style="display:none; background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4);">☁️ העבר את "כאן בשש" לענן</button>
   </div>
 </div>
 
@@ -1738,17 +1737,27 @@ function cleanupMedia(media) {
   }
 }
 
-// לולאת אנימציה ייעודית לוידאו - רצה כל עוד יש לפחות וידאו אחד מנגן
+// לולאת אנימציה ייעודית לוידאו - רצה כל עוד יש לפחות וידאו אחד מנגן.
+// מוגבל ל-30fps כדי לחסוך משאבים (העין לא רואה הבדל גדול בוידאו של חדשות).
 let videoRenderId = null;
+let _lastVideoRenderTs = 0;
+const VIDEO_TARGET_FPS = 30;
+const VIDEO_FRAME_MS = 1000 / VIDEO_TARGET_FPS;
+
 function startVideoRenderLoop() {
   if (videoRenderId) return; // כבר רץ
-  const loop = () => {
+  _lastVideoRenderTs = 0;
+  const loop = (ts) => {
     const hasPlayingVideo = userImages.some(m => m && m._isVideo && !m.paused && !m.ended);
     if (!hasPlayingVideo) {
       videoRenderId = null;
       return;
     }
-    if (showPreview) render();
+    // הגבלת קצב - רנדר רק אם עברו מספיק ms מהפעם הקודמת
+    if (showPreview && (ts - _lastVideoRenderTs >= VIDEO_FRAME_MS)) {
+      _lastVideoRenderTs = ts;
+      render();
+    }
     videoRenderId = requestAnimationFrame(loop);
   };
   videoRenderId = requestAnimationFrame(loop);
@@ -1832,21 +1841,49 @@ function drawPlaceholder(corners, labelTxt) {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const fontSize = Math.max(16, Math.min(34, canvas.width * 0.026));
-  ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", Arial, sans-serif`;
 
-  // שכבות זוהר ניאון לבן
+  // חישוב הרוחב והגובה של המסך באולפן (לא של הקנבס כולו)
+  // בעזרת מרחקים בין הפינות - מטפל בפרספקטיבה
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const topW = dist(pts[0], pts[1]);    // עליון
+  const botW = dist(pts[3], pts[2]);    // תחתון
+  const leftH = dist(pts[0], pts[3]);   // שמאל
+  const rightH = dist(pts[1], pts[2]);  // ימין
+  const screenW = (topW + botW) / 2;
+  const screenH = (leftH + rightH) / 2;
+
+  const TEXT = 'התמונה תעלה כאן';
+  // ניסיון התחלתי לפי רוחב המסך, ואז להתאים אם הטקסט עדיין חורג
+  let fontSize = Math.max(10, Math.min(34, screenW * 0.085));
+  ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", Arial, sans-serif`;
+  // מדידה ובדיקה - אם הטקסט רחב מ-85% מרוחב המסך, מקטינים פרופורציונלית
+  let textW = ctx.measureText(TEXT).width;
+  const maxTextW = screenW * 0.85;
+  if (textW > maxTextW) {
+    fontSize = fontSize * (maxTextW / textW);
+    fontSize = Math.max(8, fontSize);
+    ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", Arial, sans-serif`;
+  }
+  // הגבלה גם לפי גובה המסך - הטקסט לא יותר מ-30% מגובה המסך
+  const maxByHeight = screenH * 0.30;
+  if (fontSize > maxByHeight) {
+    fontSize = Math.max(8, maxByHeight);
+    ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", Arial, sans-serif`;
+  }
+
+  // שכבות זוהר ניאון לבן (עוצמת ה-glow יורדת עם הפונט כדי שלא יחרוג)
+  const glowScale = fontSize / 28; // 28 = גודל בסיס
   ctx.shadowColor = 'rgba(220, 235, 255, ' + alpha + ')';
   ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
   for (let i = 0; i < 3; i++) {
-    ctx.shadowBlur = glow * (1 + i * 0.6);
-    ctx.fillText('התמונה תעלה כאן', cx, cy);
+    ctx.shadowBlur = glow * (1 + i * 0.6) * glowScale;
+    ctx.fillText(TEXT, cx, cy);
   }
   // ליבת הטקסט - חדה ובהירה
-  ctx.shadowBlur = 4;
+  ctx.shadowBlur = 4 * glowScale;
   ctx.shadowColor = 'rgba(255,255,255,.9)';
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('התמונה תעלה כאן', cx, cy);
+  ctx.fillText(TEXT, cx, cy);
 
   ctx.restore();
 }
@@ -1889,15 +1926,57 @@ function lerpPt(p, q, t){
   return { x: p.x + (q.x-p.x)*t, y: p.y + (q.y-p.y)*t };
 }
 
+// מפת cache: וידאו → canvas ביניים. נשמר עבור כל וידאו פעיל.
+// המטרה: לצייר את הוידאו רק פעם אחת לפריים (לקנבס מוקטן), ואז כל ה-strips
+// יקראו מהקנבס הקטן הזה במקום ישירות מהוידאו (שזה הרבה יותר יקר).
+const _videoFrameCache = new WeakMap();
+
+function getVideoFrameCanvas(video) {
+  let entry = _videoFrameCache.get(video);
+  if (!entry) {
+    const c = document.createElement('canvas');
+    entry = { canvas: c, ctx: c.getContext('2d'), lastTime: -1 };
+    _videoFrameCache.set(video, entry);
+  }
+  // עדכון רק אם הזמן השתנה (חוסך עבודה כש-pause)
+  if (video.currentTime !== entry.lastTime) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    // קנבס מוקטן: מקסימום 800px בצד הארוך (איזון בין איכות לביצועים)
+    const MAX_DIM = 800;
+    const scale = Math.min(1, MAX_DIM / Math.max(vw, vh));
+    const cw = Math.round(vw * scale);
+    const ch = Math.round(vh * scale);
+    if (entry.canvas.width !== cw || entry.canvas.height !== ch) {
+      entry.canvas.width = cw;
+      entry.canvas.height = ch;
+    }
+    entry.ctx.drawImage(video, 0, 0, cw, ch);
+    entry.lastTime = video.currentTime;
+  }
+  return entry.canvas;
+}
+
 function drawScreenImage(img, corners) {
   // הגנה: ודא שהתמונה/וידאו נטענה לגמרי
-  // עבור וידאו - נעדיף videoWidth/videoHeight (יותר אמין מ-width/height)
   const isVideo = img && img._isVideo;
-  const iw = isVideo ? (img.videoWidth || img.width) : (img && img.width);
-  const ih = isVideo ? (img.videoHeight || img.height) : (img && img.height);
+  const vw = isVideo ? (img.videoWidth || img.width) : (img && img.width);
+  const vh = isVideo ? (img.videoHeight || img.height) : (img && img.height);
 
-  if (!img || !iw || !ih) {
-    return; // טרם מוכן - אל תקרא console.warn כי וידאו עלול לקרוא לזה בכל פריים
+  if (!img || !vw || !vh) {
+    return;
+  }
+
+  // לוידאו: משתמשים בקנבס ביניים מוקטן (אופטימיזציה כבדה).
+  // לתמונה: משתמשים בתמונה המקורית כמו שהיא.
+  let source, iw, ih;
+  if (isVideo) {
+    source = getVideoFrameCanvas(img);
+    iw = source.width;
+    ih = source.height;
+  } else {
+    source = img;
+    iw = vw;
+    ih = vh;
   }
 
   const tl={x:corners[0].x*canvas.width, y:corners[0].y*canvas.height};
@@ -1918,9 +1997,8 @@ function drawScreenImage(img, corners) {
   ctx.restore();
 
   // ---- שלב 2: ציור התמונה ברצועות אנכיות ----
-  // כל רצועה: ctx.save -> clip משולש/מרובע -> setTransform -> drawImage -> restore.
-  // ה-clip מוגדר *בתוך* ה-save של כל רצועה, ולכן תקף יחד עם הטרנספורם.
-  const STRIPS = 200;
+  // עבור וידאו - פחות strips (60) לביצועים. עבור תמונה - 200 לאיכות.
+  const STRIPS = isVideo ? 60 : 200;
 
   for (let s = 0; s < STRIPS; s++) {
     const u1 = s / STRIPS;
@@ -1950,8 +2028,6 @@ function drawScreenImage(img, corners) {
     const f = topL.y - b*s0x - d*s0y;
 
     ctx.save();
-    // clip לצורת הרצועה (מרובע) - מונע גלישה לרצועות שכנות.
-    // מורחב מעט (חצי פיקסל החוצה) כדי לסגור תפרים בין רצועות.
     ctx.beginPath();
     ctx.moveTo(topL.x, topL.y);
     ctx.lineTo(topR.x, topR.y);
@@ -1959,12 +2035,11 @@ function drawScreenImage(img, corners) {
     ctx.lineTo(botL.x, botL.y);
     ctx.closePath();
     ctx.clip();
-    // ציור התמונה דרך הטרנספורם. drawImage(img,0,0) מצייר את כל
-    // התמונה; הטרנספורם והה-clip יחד מציבים את הרצועה הנכונה במקום.
     ctx.setTransform(a, b, c, d, e, f);
+    // לוידאו - smoothing מהיר יותר. לתמונה - איכות גבוהה.
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, 0, 0);
+    ctx.imageSmoothingQuality = isVideo ? 'low' : 'high';
+    ctx.drawImage(source, 0, 0);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.restore();
   }
@@ -2622,48 +2697,6 @@ function updateMigrateBtn() {
   const builtin = TEMPLATES['studio3'];
   btn.style.display = (builtin && !builtin.cloudId) ? 'inline-flex' : 'none';
 }
-
-document.getElementById('migrateBtn').addEventListener('click', async () => {
-  const builtin = TEMPLATES['studio3'];
-  if (!builtin || builtin.cloudId) return;
-
-  if (!confirm('להעביר את "כאן בשש" לענן?\n\nהכיול, הרקע והמידות יישמרו בדיוק כמו שהם.\nאחרי ההעברה האולפן יהיה גלוי לכל הצוות עם מונה גלובלי.')) return;
-
-  const btn = document.getElementById('migrateBtn');
-  const origText = btn.textContent;
-  btn.textContent = '☁️ מעביר...';
-  btn.disabled = true;
-
-  try {
-    // 1. מעלה ל-Supabase עם כל הנתונים זהים
-    const newKey = await migrateBuiltinToCloud(builtin);
-
-    // 2. מעביר את המונה המקומי שהצטבר (אם היה) לערך ההתחלתי בענן
-    const localCount = getLocalUsage()['studio3'] || 0;
-    if (localCount > 0) {
-      TEMPLATES[newKey].usageCount = localCount;
-      try {
-        await updateStudioInCloud(TEMPLATES[newKey].cloudId, { usage_count: localCount });
-      } catch (e) { console.error('[העברה] שגיאת העברת מונה:', e); }
-    }
-
-    // 3. מסיר את הגרסה המובנה
-    delete TEMPLATES['studio3'];
-
-    // 4. עובר לגרסת הענן החדשה
-    switchTemplate(newKey);
-    renderTemplateSelector();
-    updateMigrateBtn();
-
-    btn.textContent = '✓ הועבר לענן!';
-    setTimeout(() => { btn.disabled = false; }, 500);
-  } catch (err) {
-    console.error('[העברה לענן] שגיאה:', err);
-    alert('שגיאה בהעברה: ' + (err.message || 'לא ניתן להעביר'));
-    btn.textContent = origText;
-    btn.disabled = false;
-  }
-});
 
 // ============================================
 // ===== כיול אוטומטי (OpenCV.js Homography) =====
