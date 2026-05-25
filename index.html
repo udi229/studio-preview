@@ -1520,6 +1520,10 @@ async function switchTemplate(key) {
   canvas.width = tpl.canvasW;
   canvas.height = tpl.canvasH;
   document.getElementById('stage').style.aspectRatio = `${tpl.canvasW} / ${tpl.canvasH}`;
+  // ניקוי וידאו פעיל לפני איפוס המערך (שחרור Object URLs)
+  if (typeof cleanupMedia === 'function') {
+    userImages.forEach(m => cleanupMedia(m));
+  }
   userImages = new Array(tpl.screens.length).fill(null);
   showPreview = true;
   usageCountedThisSession = false; // סשן חדש - מאפשר ספירה מחדש
@@ -1600,9 +1604,9 @@ function renderUploaders() {
       <button class="clear-btn" data-idx="${idx}">✕</button>
       <div class="icon">📺</div>
       <div class="label">${screen.label}</div>
-      <div class="hint">לחץ או גרור תמונה</div>
+      <div class="hint">לחץ או גרור תמונה / וידאו</div>
       <div class="filename" id="fn${idx}"></div>
-      <input type="file" id="file${idx}" accept="image/*">
+      <input type="file" id="file${idx}" accept="image/*,video/*">
     `;
     cont.appendChild(div);
     
@@ -1632,27 +1636,128 @@ function renderUploaders() {
 
 function loadFileTo(idx, file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = new Image();
-    img.onload = () => {
-      userImages[idx] = img;
+
+  const isVideo = file.type.startsWith('video/');
+  const isImage = file.type.startsWith('image/');
+
+  if (!isVideo && !isImage) {
+    alert('פורמט לא נתמך. ניתן להעלות תמונות (PNG/JPG/WEBP) או וידאו (MP4/WebM).');
+    return;
+  }
+
+  // ניקוי קודם אם היה כבר תוכן (חשוב לוידאו - לשחרר Object URL)
+  if (userImages[idx]) {
+    cleanupMedia(userImages[idx]);
+  }
+
+  if (isVideo) {
+    // טעינה מקומית בלבד - URL.createObjectURL
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.crossOrigin = 'anonymous';
+    video._isVideo = true;
+    video._objectUrl = url;
+
+    video.addEventListener('loadedmetadata', () => {
+      // למיפוי width/height (נדרש ל-drawScreenImage)
+      // עבור וידאו נטיבי הם videoWidth/videoHeight, אז נעטוף ל-getter
+      try {
+        Object.defineProperty(video, 'width', {
+          get() { return video.videoWidth; },
+          configurable: true
+        });
+        Object.defineProperty(video, 'height', {
+          get() { return video.videoHeight; },
+          configurable: true
+        });
+      } catch(e) {
+        // fallback - הקצאה ישירה אם defineProperty נכשל
+        video.width = video.videoWidth;
+        video.height = video.videoHeight;
+      }
+    }, { once: true });
+
+    video.addEventListener('error', () => {
+      alert('שגיאה בטעינת הוידאו. ייתכן שהפורמט אינו נתמך בדפדפן זה. נסה MP4 או WebM.');
+      cleanupMedia(video);
+      clearImage(idx);
+    }, { once: true });
+
+    video.addEventListener('canplay', () => {
+      userImages[idx] = video;
       document.getElementById('up' + idx).classList.add('has-image');
-      document.getElementById('fn' + idx).textContent = '✓ ' + file.name;
+      document.getElementById('fn' + idx).textContent = '🎬 ' + file.name;
       updateDownloadBtn();
+      video.play().catch(err => console.warn('[video play]', err));
+      startVideoRenderLoop();
       render();
-      // ספירת בדיקה - פעם אחת לכל סשן באולפן (לא לכל מסך בנפרד)
       if (!usageCountedThisSession) {
         usageCountedThisSession = true;
         bumpUsageCounter(currentTemplateKey);
       }
+    }, { once: true });
+
+    video.load();
+  } else {
+    // תמונה - הלוגיקה הישנה
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        userImages[idx] = img;
+        document.getElementById('up' + idx).classList.add('has-image');
+        document.getElementById('fn' + idx).textContent = '✓ ' + file.name;
+        updateDownloadBtn();
+        render();
+        if (!usageCountedThisSession) {
+          usageCountedThisSession = true;
+          bumpUsageCounter(currentTemplateKey);
+        }
+      };
+      img.src = ev.target.result;
     };
-    img.src = ev.target.result;
+    reader.readAsDataURL(file);
+  }
+}
+
+// ניקוי משאבי מדיה (חשוב לוידאו - שחרור Object URL ו-pause)
+function cleanupMedia(media) {
+  if (!media) return;
+  if (media._isVideo) {
+    try { media.pause(); } catch(e) {}
+    try { media.src = ''; } catch(e) {}
+    if (media._objectUrl) {
+      try { URL.revokeObjectURL(media._objectUrl); } catch(e) {}
+      media._objectUrl = null;
+    }
+  }
+}
+
+// לולאת אנימציה ייעודית לוידאו - רצה כל עוד יש לפחות וידאו אחד מנגן
+let videoRenderId = null;
+function startVideoRenderLoop() {
+  if (videoRenderId) return; // כבר רץ
+  const loop = () => {
+    const hasPlayingVideo = userImages.some(m => m && m._isVideo && !m.paused && !m.ended);
+    if (!hasPlayingVideo) {
+      videoRenderId = null;
+      return;
+    }
+    if (showPreview) render();
+    videoRenderId = requestAnimationFrame(loop);
   };
-  reader.readAsDataURL(file);
+  videoRenderId = requestAnimationFrame(loop);
 }
 
 function clearImage(idx) {
+  if (userImages[idx]) {
+    cleanupMedia(userImages[idx]);
+  }
   userImages[idx] = null;
   document.getElementById('up' + idx).classList.remove('has-image');
   document.getElementById('fn' + idx).textContent = '';
@@ -1785,18 +1890,20 @@ function lerpPt(p, q, t){
 }
 
 function drawScreenImage(img, corners) {
-  // הגנה: ודא שהתמונה נטענה לגמרי
-  if (!img || !img.width || !img.height) {
-    console.warn('[drawScreenImage] התמונה לא מוכנה');
-    return;
+  // הגנה: ודא שהתמונה/וידאו נטענה לגמרי
+  // עבור וידאו - נעדיף videoWidth/videoHeight (יותר אמין מ-width/height)
+  const isVideo = img && img._isVideo;
+  const iw = isVideo ? (img.videoWidth || img.width) : (img && img.width);
+  const ih = isVideo ? (img.videoHeight || img.height) : (img && img.height);
+
+  if (!img || !iw || !ih) {
+    return; // טרם מוכן - אל תקרא console.warn כי וידאו עלול לקרוא לזה בכל פריים
   }
 
   const tl={x:corners[0].x*canvas.width, y:corners[0].y*canvas.height};
   const tr={x:corners[1].x*canvas.width, y:corners[1].y*canvas.height};
   const br={x:corners[2].x*canvas.width, y:corners[2].y*canvas.height};
   const bl={x:corners[3].x*canvas.width, y:corners[3].y*canvas.height};
-
-  const iw = img.width, ih = img.height;
 
   // ---- שלב 1: רקע שחור על אזור המסך ----
   ctx.save();
