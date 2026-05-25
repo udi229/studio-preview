@@ -1661,6 +1661,7 @@ function loadFileTo(idx, file) {
     video.crossOrigin = 'anonymous';
     video._isVideo = true;
     video._objectUrl = url;
+    video._loadedOk = false; // דגל - האם canplay כבר רץ בהצלחה
 
     video.addEventListener('loadedmetadata', () => {
       // למיפוי width/height (נדרש ל-drawScreenImage)
@@ -1681,13 +1682,21 @@ function loadFileTo(idx, file) {
       }
     }, { once: true });
 
-    video.addEventListener('error', () => {
+    // error listener - מתעלם משגיאות שאחרי טעינה מוצלחת (ניקוי, end of stream וכו')
+    video.addEventListener('error', (e) => {
+      // אם הוידאו כבר הצליח להתחיל - שגיאה זו לא רלוונטית (ניקוי, סוף stream, וכו')
+      if (video._loadedOk || video._beingCleanedUp) return;
+      // אם אין src - זה ניקוי
+      if (!video.src || video.src === window.location.href) return;
+      console.error('[video load error]', video.error);
       alert('שגיאה בטעינת הוידאו. ייתכן שהפורמט אינו נתמך בדפדפן זה. נסה MP4 או WebM.');
       cleanupMedia(video);
       clearImage(idx);
-    }, { once: true });
+    });
 
     video.addEventListener('canplay', () => {
+      if (video._loadedOk) return; // כבר טופל
+      video._loadedOk = true;
       userImages[idx] = video;
       document.getElementById('up' + idx).classList.add('has-image');
       document.getElementById('fn' + idx).textContent = '🎬 ' + file.name;
@@ -1699,7 +1708,7 @@ function loadFileTo(idx, file) {
         usageCountedThisSession = true;
         bumpUsageCounter(currentTemplateKey);
       }
-    }, { once: true });
+    });
 
     video.load();
   } else {
@@ -1728,8 +1737,13 @@ function loadFileTo(idx, file) {
 function cleanupMedia(media) {
   if (!media) return;
   if (media._isVideo) {
+    media._beingCleanedUp = true; // דגל - error listener יתעלם משגיאות שיגיעו כעת
     try { media.pause(); } catch(e) {}
-    try { media.src = ''; } catch(e) {}
+    try {
+      // removeAttribute במקום src='' - לא זורק error event ב-Chrome
+      media.removeAttribute('src');
+      media.load();
+    } catch(e) {}
     if (media._objectUrl) {
       try { URL.revokeObjectURL(media._objectUrl); } catch(e) {}
       media._objectUrl = null;
