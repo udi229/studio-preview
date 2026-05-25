@@ -498,11 +498,158 @@
     color: #9ab;
     font-size: 10.5px;
   }
-  #usageCounter .uc-num {
-    color: #6fd0ff;
-    font-weight: 800;
-    font-size: 21px;
-    margin: 0 3px;
+  /* ===== מודאל כיול אוטומטי ===== */
+  #autoCalModal .modal-box {
+    min-width: 480px;
+    max-width: 95vw;
+    width: 720px;
+  }
+  .ac-uploaders {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .ac-uploader {
+    background: rgba(80,160,255,.06);
+    border: 2px dashed rgba(80,160,255,.4);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    text-align: center;
+    position: relative;
+    min-height: 130px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: all .15s ease;
+  }
+  .ac-uploader:hover { border-color: #4a8de0; background: rgba(80,160,255,.14); }
+  .ac-uploader.has-image {
+    border-style: solid;
+    border-color: rgba(80,255,160,.5);
+    background: rgba(80,255,160,.06);
+  }
+  .ac-uploader .ac-icon { font-size: 26px; margin-bottom: 4px; }
+  .ac-uploader .ac-label { font-size: 13px; color: #b8c4d8; font-weight: 700; }
+  .ac-uploader .ac-hint { font-size: 11px; color: #889; margin-top: 2px; }
+  .ac-uploader .ac-filename {
+    font-size: 11px; color: #8aef9e; margin-top: 6px;
+    max-width: 240px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ac-uploader .ac-preview {
+    max-width: 100%;
+    max-height: 90px;
+    margin-top: 6px;
+    border-radius: 5px;
+    object-fit: contain;
+  }
+  .ac-clear {
+    position: absolute; top: 6px; left: 6px;
+    background: rgba(220,80,80,.85);
+    border: none; color: white;
+    width: 22px; height: 22px; border-radius: 50%;
+    cursor: pointer; font-size: 13px;
+    display: none;
+    align-items: center; justify-content: center;
+  }
+  .ac-uploader.has-image .ac-clear { display: flex; }
+
+  .ac-screen-select {
+    display: none;
+    background: rgba(255,180,80,.06);
+    border: 1px solid rgba(255,180,80,.25);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 10px;
+  }
+  .ac-screen-select.show { display: block; }
+  .ac-screen-select label {
+    display: block;
+    color: #ffd080;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .ac-screen-btns {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .ac-screen-btn {
+    background: rgba(80,160,255,.1);
+    border: 2px solid rgba(80,160,255,.3);
+    color: #e8e8f0;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all .15s ease;
+  }
+  .ac-screen-btn:hover { background: rgba(80,160,255,.2); }
+  .ac-screen-btn.active {
+    background: linear-gradient(135deg, #2a5fa8, #4a8de0);
+    border-color: #4a8de0;
+    box-shadow: 0 2px 8px rgba(74,141,224,.4);
+  }
+
+  .ac-status {
+    margin-top: 12px;
+    background: rgba(80,160,255,.06);
+    border: 1px solid rgba(80,160,255,.2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #b8c4d8;
+    line-height: 1.6;
+    min-height: 44px;
+  }
+  .ac-status.ok { background: rgba(80,255,160,.06); border-color: rgba(80,255,160,.3); color: #b8f0c8; }
+  .ac-status.err { background: rgba(255,80,80,.06); border-color: rgba(255,80,80,.3); color: #f0b8b8; }
+  .ac-status.busy { background: rgba(255,180,80,.06); border-color: rgba(255,180,80,.3); color: #f0d8a0; }
+  .ac-status b { color: #fff; }
+
+  .ac-progress {
+    background: rgba(0,0,0,.3);
+    border-radius: 4px;
+    overflow: hidden;
+    height: 5px;
+    margin-top: 6px;
+    display: none;
+  }
+  .ac-progress.show { display: block; }
+  .ac-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #4a8de0, #6fd0ff);
+    width: 0%;
+    transition: width .3s ease;
+  }
+
+  .ac-result {
+    display: none;
+    margin-top: 12px;
+  }
+  .ac-result.show { display: block; }
+  .ac-result-canvas-wrap {
+    position: relative;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    max-height: 360px;
+  }
+  .ac-result-canvas-wrap canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 360px;
+    object-fit: contain;
+  }
+
+  .ac-actions-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -575,7 +722,7 @@
     <button class="btn" id="downloadBtn" disabled>💾 הורד תוצאה</button>
     <button class="btn alt" id="resetBtn">🔄 איפוס תמונות</button>
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
-    <button class="btn alt admin-only" id="exportCfg">📋 העתק קונפיגורציה</button>
+    <button class="btn admin-only" id="autoCalBtn" style="background: linear-gradient(135deg, #8a3aa8, #c06ae0); box-shadow: 0 2px 10px rgba(192,106,224,.4);">🤖 כיול אוטומטי</button>
   </div>
 
   <div class="actions admin-only" style="margin-top:4px;">
@@ -603,6 +750,60 @@
       <button class="btn alt" id="newStudioCancel">ביטול</button>
     </div>
     <div id="newStudioStatus" class="modal-status"></div>
+  </div>
+</div>
+
+<!-- מודאל כיול אוטומטי -->
+<div id="autoCalModal" class="modal-overlay">
+  <div class="modal-box">
+    <h2>🤖 כיול אוטומטי</h2>
+    <div style="color:#9ab; font-size:12px; text-align:center; margin-bottom:12px;">
+      המערכת תזהה אוטומטית את מיקום המסך ע"י השוואת תמונות
+    </div>
+
+    <div class="ac-uploaders">
+      <div class="ac-uploader" id="acStudioUploader">
+        <button class="ac-clear" id="acClearStudio">✕</button>
+        <div class="ac-icon">🎬</div>
+        <div class="ac-label">תמונת אולפן</div>
+        <div class="ac-hint">(עם תמונה גלויה על המסך)</div>
+        <div class="ac-filename" id="acStudioFilename"></div>
+        <img class="ac-preview" id="acStudioPreview" style="display:none;" alt="">
+        <input type="file" id="acStudioFile" accept="image/*" style="display:none;">
+      </div>
+
+      <div class="ac-uploader" id="acScreenUploader">
+        <button class="ac-clear" id="acClearScreen">✕</button>
+        <div class="ac-icon">🖼️</div>
+        <div class="ac-label">תמונת המקור</div>
+        <div class="ac-hint">(זו שמוצגת על המסך)</div>
+        <div class="ac-filename" id="acScreenFilename"></div>
+        <img class="ac-preview" id="acScreenPreview" style="display:none;" alt="">
+        <input type="file" id="acScreenFile" accept="image/*" style="display:none;">
+      </div>
+    </div>
+
+    <div class="ac-screen-select" id="acScreenSelect">
+      <label>בחר את המסך לכיול:</label>
+      <div class="ac-screen-btns" id="acScreenBtns"></div>
+    </div>
+
+    <div class="ac-status" id="acStatus">
+      <b>📋 הוראות:</b> העלה תמונת אולפן (שבה רואים תמונה כלשהי על המסך) ואת התמונה המקורית עצמה. לחץ "זהה אוטומטית".
+      <div class="ac-progress" id="acProgress"><div class="ac-progress-bar" id="acProgressBar"></div></div>
+    </div>
+
+    <div class="ac-result" id="acResult">
+      <div class="ac-result-canvas-wrap">
+        <canvas id="acResultCanvas"></canvas>
+      </div>
+    </div>
+
+    <div class="ac-actions-row">
+      <button class="btn go" id="acDetectBtn" style="background: linear-gradient(135deg, #5a3aa8, #8a6ae0); box-shadow: 0 2px 12px rgba(138,106,224,.5);" disabled>🤖 זהה אוטומטית</button>
+      <button class="btn" id="acApplyBtn" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); display:none;">✅ החל על הכיול</button>
+      <button class="btn alt" id="acCancelBtn">סגור</button>
+    </div>
   </div>
 </div>
 
@@ -1813,21 +2014,6 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   userImages.forEach((_, idx) => clearImage(idx));
 });
 
-document.getElementById('exportCfg').addEventListener('click', () => {
-  const tpl = getCurrentTemplate();
-  const cfg = {
-    key: currentTemplateKey,
-    name: tpl.name,
-    screens: tpl.screens
-  };
-  const txt = JSON.stringify(cfg, null, 2);
-  navigator.clipboard.writeText(txt).then(() => {
-    alert('הקונפיגורציה הועתקה ללוח.\nשלח אותה כדי לעדכן את הכיול.');
-  }).catch(() => {
-    prompt('העתק את הטקסט הבא:', txt);
-  });
-});
-
 // ===== מצב מנהל =====
 const ADMIN_CODE = '2209';
 let isAdmin = false;
@@ -2371,6 +2557,459 @@ document.getElementById('migrateBtn').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// ============================================
+// ===== כיול אוטומטי (OpenCV.js Homography) =====
+// ============================================
+(function() {
+  let acStudioImg = null;
+  let acScreenImg = null;
+  let acDetectedCorners = null; // 4 פינות במונחים יחסיים (0-1) של תמונת האולפן
+  let acSelectedScreenIdx = 0;
+  let acCvReady = false;
+  let acCvLoading = false;
+
+  const acModal = document.getElementById('autoCalModal');
+  const acStatusEl = document.getElementById('acStatus');
+  const acProgressEl = document.getElementById('acProgress');
+  const acProgressBar = document.getElementById('acProgressBar');
+  const acDetectBtn = document.getElementById('acDetectBtn');
+  const acApplyBtn = document.getElementById('acApplyBtn');
+  const acResultEl = document.getElementById('acResult');
+  const acScreenSelectEl = document.getElementById('acScreenSelect');
+  const acScreenBtnsEl = document.getElementById('acScreenBtns');
+
+  function acSetStatus(html, cls = '') {
+    acStatusEl.className = 'ac-status ' + cls;
+    acStatusEl.innerHTML = html;
+    if (cls !== 'busy') acProgressEl.classList.remove('show');
+  }
+
+  function acSetProgress(pct) {
+    acProgressEl.classList.add('show');
+    acProgressBar.style.width = pct + '%';
+  }
+
+  function acResetState() {
+    acStudioImg = null;
+    acScreenImg = null;
+    acDetectedCorners = null;
+    ['acStudioUploader', 'acScreenUploader'].forEach(id => {
+      const u = document.getElementById(id);
+      u.classList.remove('has-image');
+      u.querySelector('.ac-preview').style.display = 'none';
+      u.querySelector('.ac-preview').src = '';
+      u.querySelector('.ac-filename').textContent = '';
+      u.querySelector('input[type=file]').value = '';
+    });
+    acResultEl.classList.remove('show');
+    acApplyBtn.style.display = 'none';
+    acDetectBtn.disabled = true;
+    acSetStatus('<b>📋 הוראות:</b> העלה תמונת אולפן (שבה רואים תמונה כלשהי על המסך) ואת התמונה המקורית עצמה. לחץ "זהה אוטומטית".');
+  }
+
+  function acRenderScreenButtons() {
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens) return;
+    acScreenBtnsEl.innerHTML = '';
+    if (tpl.screens.length === 1) {
+      acScreenSelectEl.classList.remove('show');
+      acSelectedScreenIdx = 0;
+      return;
+    }
+    acScreenSelectEl.classList.add('show');
+    if (acSelectedScreenIdx >= tpl.screens.length) acSelectedScreenIdx = 0;
+    tpl.screens.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'ac-screen-btn' + (idx === acSelectedScreenIdx ? ' active' : '');
+      btn.textContent = s.label || ('מסך ' + (idx + 1));
+      btn.addEventListener('click', () => {
+        acSelectedScreenIdx = idx;
+        acRenderScreenButtons();
+      });
+      acScreenBtnsEl.appendChild(btn);
+    });
+  }
+
+  function acUpdateDetectBtn() {
+    acDetectBtn.disabled = !(acStudioImg && acScreenImg);
+  }
+
+  function acSetupUploader(uploaderId, fileInputId, previewId, filenameId, clearId, onLoad) {
+    const uploader = document.getElementById(uploaderId);
+    const fileInput = document.getElementById(fileInputId);
+    const preview = document.getElementById(previewId);
+    const filename = document.getElementById(filenameId);
+    const clear = document.getElementById(clearId);
+
+    uploader.addEventListener('click', (e) => {
+      if (e.target === clear) return;
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (!fileInput.files[0]) return;
+      const f = fileInput.files[0];
+      if (!f.type.startsWith('image/')) {
+        acSetStatus('❌ נא לבחור קובץ תמונה', 'err');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          uploader.classList.add('has-image');
+          preview.src = e.target.result;
+          preview.style.display = 'block';
+          filename.textContent = f.name + ` (${img.width}×${img.height})`;
+          onLoad(img);
+          acUpdateDetectBtn();
+          // איפוס תוצאה קודמת
+          acResultEl.classList.remove('show');
+          acApplyBtn.style.display = 'none';
+          acDetectedCorners = null;
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(f);
+    });
+
+    clear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      uploader.classList.remove('has-image');
+      preview.style.display = 'none';
+      preview.src = '';
+      filename.textContent = '';
+      fileInput.value = '';
+      onLoad(null);
+      acUpdateDetectBtn();
+      acResultEl.classList.remove('show');
+      acApplyBtn.style.display = 'none';
+      acDetectedCorners = null;
+    });
+  }
+
+  acSetupUploader('acStudioUploader', 'acStudioFile', 'acStudioPreview', 'acStudioFilename', 'acClearStudio',
+    (img) => { acStudioImg = img; });
+  acSetupUploader('acScreenUploader', 'acScreenFile', 'acScreenPreview', 'acScreenFilename', 'acClearScreen',
+    (img) => { acScreenImg = img; });
+
+  // ===== טעינת OpenCV.js =====
+  function acLoadOpenCV() {
+    return new Promise((resolve, reject) => {
+      if (acCvReady) return resolve();
+      if (acCvLoading) {
+        const check = setInterval(() => {
+          if (acCvReady) { clearInterval(check); resolve(); }
+        }, 100);
+        return;
+      }
+      acCvLoading = true;
+      acSetStatus('⏳ טוען את OpenCV.js... (פעם ראשונה, ~8MB)', 'busy');
+      acSetProgress(20);
+
+      const script = document.createElement('script');
+      script.src = 'https://docs.opencv.org/4.10.0/opencv.js';
+      script.async = true;
+      script.onload = () => {
+        acSetProgress(60);
+        if (typeof cv === 'undefined') {
+          acCvLoading = false;
+          reject(new Error('OpenCV לא נטען כראוי'));
+          return;
+        }
+        cv.onRuntimeInitialized = () => {
+          acCvReady = true;
+          acSetProgress(100);
+          acSetStatus('✅ OpenCV מוכן. מתחיל זיהוי...', 'busy');
+          resolve();
+        };
+      };
+      script.onerror = () => {
+        acCvLoading = false;
+        reject(new Error('שגיאה בטעינת OpenCV.js'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  function acImgToMat(img) {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    return cv.imread(canvas);
+  }
+
+  async function acDetectHomography() {
+    acSetStatus('🔍 מזהה תכונות בתמונות...', 'busy');
+    acSetProgress(20);
+    await new Promise(r => setTimeout(r, 50));
+
+    let srcMat = null, dstMat = null;
+    let srcGray = null, dstGray = null;
+    let kp1 = null, kp2 = null, des1 = null, des2 = null;
+    let orb = null, matcher = null;
+    let matches = null;
+
+    try {
+      srcMat = acImgToMat(acScreenImg);
+      dstMat = acImgToMat(acStudioImg);
+      srcGray = new cv.Mat();
+      dstGray = new cv.Mat();
+      cv.cvtColor(srcMat, srcGray, cv.COLOR_RGBA2GRAY);
+      cv.cvtColor(dstMat, dstGray, cv.COLOR_RGBA2GRAY);
+
+      acSetProgress(40);
+      acSetStatus('🔍 מזהה features עם ORB...', 'busy');
+      await new Promise(r => setTimeout(r, 50));
+
+      orb = new cv.ORB(5000);
+      kp1 = new cv.KeyPointVector();
+      kp2 = new cv.KeyPointVector();
+      des1 = new cv.Mat();
+      des2 = new cv.Mat();
+      orb.detectAndCompute(srcGray, new cv.Mat(), kp1, des1);
+      orb.detectAndCompute(dstGray, new cv.Mat(), kp2, des2);
+
+      const n1 = kp1.size();
+      const n2 = kp2.size();
+
+      if (n1 < 10 || n2 < 10) {
+        throw new Error(`לא נמצאו מספיק נקודות עניין (מקור: ${n1}, אולפן: ${n2}). נסה תמונות עם יותר פרטים.`);
+      }
+
+      acSetProgress(60);
+      acSetStatus(`🔗 מתאים בין ${n1} נקודות במקור ל-${n2} באולפן...`, 'busy');
+      await new Promise(r => setTimeout(r, 50));
+
+      matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
+      matches = new cv.DMatchVectorVector();
+      matcher.knnMatch(des1, des2, matches, 2);
+
+      const goodMatches = [];
+      for (let i = 0; i < matches.size(); i++) {
+        const m = matches.get(i);
+        if (m.size() >= 2) {
+          const m0 = m.get(0);
+          const m1 = m.get(1);
+          if (m0.distance < 0.75 * m1.distance) {
+            goodMatches.push(m0);
+          }
+          m0.delete && m0.delete();
+          m1.delete && m1.delete();
+        }
+        m.delete && m.delete();
+      }
+
+      acSetProgress(75);
+      acSetStatus(`✨ נמצאו ${goodMatches.length} התאמות איכותיות. מחשב טרנספורמציה...`, 'busy');
+      await new Promise(r => setTimeout(r, 50));
+
+      if (goodMatches.length < 10) {
+        throw new Error(`נמצאו רק ${goodMatches.length} התאמות איכותיות (צריך ≥10). ייתכן חסימה גדולה או הבדל גדול בין התמונות.`);
+      }
+
+      const srcPts = [];
+      const dstPts = [];
+      for (const dm of goodMatches) {
+        const p1 = kp1.get(dm.queryIdx).pt;
+        const p2 = kp2.get(dm.trainIdx).pt;
+        srcPts.push(p1.x, p1.y);
+        dstPts.push(p2.x, p2.y);
+      }
+
+      const srcMat2 = cv.matFromArray(goodMatches.length, 1, cv.CV_32FC2, srcPts);
+      const dstMat2 = cv.matFromArray(goodMatches.length, 1, cv.CV_32FC2, dstPts);
+
+      const mask = new cv.Mat();
+      const H = cv.findHomography(srcMat2, dstMat2, cv.RANSAC, 5.0, mask);
+
+      if (H.empty()) {
+        srcMat2.delete(); dstMat2.delete(); mask.delete(); H.delete();
+        throw new Error('לא הצלחתי לחשב טרנספורמציה. אין מספיק מתאמות תקפות.');
+      }
+
+      let inliers = 0;
+      for (let i = 0; i < mask.rows; i++) {
+        if (mask.ucharAt(i, 0)) inliers++;
+      }
+
+      acSetProgress(90);
+      acSetStatus(`🎯 RANSAC: ${inliers}/${goodMatches.length} התאמות תקפות. מקרין פינות...`, 'busy');
+      await new Promise(r => setTimeout(r, 50));
+
+      if (inliers < 8) {
+        srcMat2.delete(); dstMat2.delete(); mask.delete(); H.delete();
+        throw new Error(`רק ${inliers} התאמות עברו את RANSAC. הזיהוי לא אמין מספיק.`);
+      }
+
+      const W = acScreenImg.width;
+      const Hgt = acScreenImg.height;
+      const corners = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        0, 0,
+        W, 0,
+        W, Hgt,
+        0, Hgt
+      ]);
+      const projected = new cv.Mat();
+      cv.perspectiveTransform(corners, projected, H);
+
+      const projectedCorners = [];
+      for (let i = 0; i < 4; i++) {
+        projectedCorners.push({
+          x: projected.data32F[i * 2],
+          y: projected.data32F[i * 2 + 1]
+        });
+      }
+
+      srcMat2.delete(); dstMat2.delete(); mask.delete(); H.delete();
+      corners.delete(); projected.delete();
+
+      acSetProgress(100);
+      return { corners: projectedCorners, inliers, totalMatches: goodMatches.length };
+
+    } finally {
+      [srcMat, dstMat, srcGray, dstGray, des1, des2, matches].forEach(m => m && m.delete && m.delete());
+      if (kp1) kp1.delete();
+      if (kp2) kp2.delete();
+      if (orb) orb.delete();
+      if (matcher) matcher.delete();
+    }
+  }
+
+  function acDrawResult(corners, info) {
+    const canvas = document.getElementById('acResultCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = acStudioImg.width;
+    canvas.height = acStudioImg.height;
+    ctx.drawImage(acStudioImg, 0, 0);
+
+    // פוליגון
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(80, 255, 160, 0.18)';
+    ctx.fill();
+    ctx.strokeStyle = '#5fff90';
+    ctx.lineWidth = Math.max(3, Math.min(acStudioImg.width, acStudioImg.height) / 300);
+    ctx.shadowColor = '#5fff90';
+    ctx.shadowBlur = 14;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const labels = ['↖', '↗', '↘', '↙'];
+    const colors = ['#ff3355', '#33aaff', '#ffaa33', '#aa55ff'];
+    const r = Math.max(8, Math.min(acStudioImg.width, acStudioImg.height) / 80);
+
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.arc(corners[i].x, corners[i].y, r, 0, Math.PI * 2);
+      ctx.fillStyle = colors[i];
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.font = `bold ${Math.max(16, r * 1.6)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const lblW = ctx.measureText(labels[i]).width + 14;
+      ctx.fillRect(corners[i].x - lblW / 2, corners[i].y - r - 32, lblW, 24);
+      ctx.fillStyle = colors[i];
+      ctx.fillText(labels[i], corners[i].x, corners[i].y - r - 20);
+    }
+
+    acResultEl.classList.add('show');
+  }
+
+  // ===== הפעלת הזיהוי =====
+  acDetectBtn.addEventListener('click', async () => {
+    acDetectBtn.disabled = true;
+    acApplyBtn.style.display = 'none';
+    acResultEl.classList.remove('show');
+    acDetectedCorners = null;
+
+    try {
+      await acLoadOpenCV();
+      const result = await acDetectHomography();
+      acDrawResult(result.corners, result);
+
+      // המרה לקואורדינטות יחסיות (0-1) - לצורך החלה על הכיול
+      const sw = acStudioImg.width;
+      const sh = acStudioImg.height;
+      acDetectedCorners = result.corners.map(c => ({
+        x: c.x / sw,
+        y: c.y / sh
+      }));
+
+      const tpl = TEMPLATES[currentTemplateKey];
+      const screenLabel = tpl.screens[acSelectedScreenIdx].label || ('מסך ' + (acSelectedScreenIdx + 1));
+      acSetStatus(
+        `✅ <b>זיהוי הצליח!</b> ${result.inliers}/${result.totalMatches} התאמות תקפות.<br>` +
+        `לחץ "החל על הכיול" כדי להציב את הפינות על <b>${screenLabel}</b>. אפשר גם להתאים ידנית אחר כך.`,
+        'ok'
+      );
+      acApplyBtn.style.display = 'inline-flex';
+    } catch (err) {
+      console.error('[כיול אוטומטי] שגיאה:', err);
+      acSetStatus(`❌ <b>זיהוי נכשל:</b> ${err.message}<br>תוכל לסגור את החלון ולכייל ידנית כרגיל.`, 'err');
+    } finally {
+      acDetectBtn.disabled = !(acStudioImg && acScreenImg);
+    }
+  });
+
+  // ===== החלה על הכיול =====
+  acApplyBtn.addEventListener('click', () => {
+    if (!acDetectedCorners) return;
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || !tpl.screens[acSelectedScreenIdx]) {
+      acSetStatus('❌ שגיאה: לא נמצא מסך לעדכון', 'err');
+      return;
+    }
+
+    // עדכון הפינות במסך הנבחר
+    tpl.screens[acSelectedScreenIdx].corners = acDetectedCorners.map(c => ({
+      x: c.x,
+      y: c.y
+    }));
+
+    // ציור מחדש + רענון פינות
+    if (typeof render === 'function') render();
+    if (typeof renderCorners === 'function') renderCorners();
+
+    const screenLabel = tpl.screens[acSelectedScreenIdx].label || ('מסך ' + (acSelectedScreenIdx + 1));
+    acSetStatus(
+      `✅ <b>הפינות הוחלו על ${screenLabel}.</b><br>` +
+      `אפשר להתאים ידנית במידת הצורך. <b>אל תשכח ללחוץ "שמור כיול"</b> כדי לשמור לענן.`,
+      'ok'
+    );
+    acApplyBtn.style.display = 'none';
+  });
+
+  // ===== פתיחה / סגירה =====
+  document.getElementById('autoCalBtn').addEventListener('click', () => {
+    // ודא שאנחנו במצב כיול
+    if (!calMode) {
+      const tg = document.getElementById('toggleCal');
+      if (tg) tg.click();
+    }
+    acResetState();
+    acRenderScreenButtons();
+    acModal.classList.add('show');
+  });
+
+  document.getElementById('acCancelBtn').addEventListener('click', () => {
+    acModal.classList.remove('show');
+  });
+
+  acModal.addEventListener('click', (e) => {
+    if (e.target === acModal) acModal.classList.remove('show');
+  });
+})();
 
 // ===== Init =====
 initSplash();
