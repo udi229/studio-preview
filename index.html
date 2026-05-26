@@ -723,6 +723,8 @@
     <button class="btn alt" id="resetBtn">🔄 איפוס תמונות</button>
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
     <button class="btn admin-only" id="autoCalBtn" style="background: linear-gradient(135deg, #8a3aa8, #c06ae0); box-shadow: 0 2px 10px rgba(192,106,224,.4);">🤖 כיול אוטומטי</button>
+    <button class="btn admin-only" id="addScreenBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4); display:none;">➕ הוסף מסך</button>
+    <button class="btn admin-only" id="deleteScreenBtn" style="background: linear-gradient(135deg, #8a2a2a, #d04a4a); box-shadow: 0 2px 10px rgba(208,74,74,.4); display:none;">🗑️ מחק מסך</button>
   </div>
 
   <div class="actions admin-only" style="margin-top:4px;">
@@ -802,6 +804,23 @@
       <button class="btn go" id="acDetectBtn" style="background: linear-gradient(135deg, #5a3aa8, #8a6ae0); box-shadow: 0 2px 12px rgba(138,106,224,.5);" disabled>🤖 זהה אוטומטית</button>
       <button class="btn" id="acApplyBtn" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); display:none;">✅ החל על הכיול</button>
       <button class="btn alt" id="acCancelBtn">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- מודאל מחיקת מסך -->
+<div id="deleteScreenModal" class="modal-overlay">
+  <div class="modal-box">
+    <h2>🗑️ מחק מסך</h2>
+    <div style="color:#9ab; font-size:12px; text-align:center; margin-bottom:12px;">
+      בחר את המסך שברצונך למחוק. <b style="color:#f0b8b8;">הפעולה בלתי הפיכה.</b><br>
+      השינוי ייכנס לתוקף רק אחרי לחיצה על "שמור כיול".
+    </div>
+
+    <div class="ac-screen-btns" id="deleteScreenBtns" style="justify-content:center;"></div>
+
+    <div class="ac-actions-row">
+      <button class="btn alt" id="deleteScreenCancelBtn">ביטול</button>
     </div>
   </div>
 </div>
@@ -3183,6 +3202,135 @@ function updateMigrateBtn() {
 
   acModal.addEventListener('click', (e) => {
     if (e.target === acModal) acModal.classList.remove('show');
+  });
+})();
+
+// ============================================
+// ===== הוספה/מחיקה של מסכים במצב כיול =====
+// ============================================
+(function() {
+  const addScreenBtn = document.getElementById('addScreenBtn');
+  const deleteScreenBtn = document.getElementById('deleteScreenBtn');
+  const deleteScreenModal = document.getElementById('deleteScreenModal');
+  const deleteScreenBtns = document.getElementById('deleteScreenBtns');
+  const deleteScreenCancelBtn = document.getElementById('deleteScreenCancelBtn');
+
+  // הצגה/הסתרה של כפתורי הוסף/מחק מסך לפי מצב כיול
+  function updateScreenButtonsVisibility() {
+    const show = calMode && !previewLook;
+    addScreenBtn.style.display = show ? '' : 'none';
+    deleteScreenBtn.style.display = show ? '' : 'none';
+  }
+
+  // מאזין לשינוי מצב כיול - הכפתורים יסתתרו/יחשפו לפי הצורך
+  // אנחנו עוטפים את הלחיצות הקיימות
+  const origToggleCal = document.getElementById('toggleCal');
+  origToggleCal.addEventListener('click', () => {
+    // ה-click האמיתי כבר רץ - calMode כבר משתנה. ננסה בדיליי קטן.
+    setTimeout(updateScreenButtonsVisibility, 0);
+  });
+  const origPreviewLook = document.getElementById('previewLook');
+  if (origPreviewLook) {
+    origPreviewLook.addEventListener('click', () => {
+      setTimeout(updateScreenButtonsVisibility, 0);
+    });
+  }
+  // עדכון ראשוני
+  updateScreenButtonsVisibility();
+
+  // ===== הוספת מסך =====
+  addScreenBtn.addEventListener('click', () => {
+    if (!calMode) return;
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl) return;
+    if (!tpl.screens) tpl.screens = [];
+
+    // מספר המסך החדש
+    const newIdx = tpl.screens.length;
+    const newNum = newIdx + 1;
+
+    // פינות ברירת מחדל - באמצע הקנבס, גודל בינוני
+    // כדי שלא יכסה בדיוק מסך קיים, מסיט מעט לפי האינדקס
+    const offsetX = (newIdx * 0.05) % 0.25;
+    const offsetY = (newIdx * 0.04) % 0.20;
+    const newCorners = [
+      { x: 0.30 + offsetX, y: 0.28 + offsetY },
+      { x: 0.60 + offsetX, y: 0.28 + offsetY },
+      { x: 0.60 + offsetX, y: 0.72 + offsetY },
+      { x: 0.30 + offsetX, y: 0.72 + offsetY }
+    ];
+
+    tpl.screens.push({
+      label: 'מסך ' + newNum,
+      corners: newCorners
+    });
+
+    // עדכון מערך התמונות (userImages) - מוסיף slot חדש
+    userImages.push(null);
+
+    // ציור מחדש
+    if (typeof renderUploaders === 'function') renderUploaders();
+    if (typeof render === 'function') render();
+    if (typeof renderCorners === 'function') renderCorners();
+
+    // הודעה קצרה
+    const screenLabel = 'מסך ' + newNum;
+    console.log('[הוסף מסך] נוסף ' + screenLabel + ' עם פינות ברירת מחדל. גרור את הפינות למקום ושמור.');
+  });
+
+  // ===== מחיקת מסך =====
+  function showDeleteScreenModal() {
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || tpl.screens.length === 0) return;
+
+    deleteScreenBtns.innerHTML = '';
+    tpl.screens.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'ac-screen-btn';
+      btn.textContent = '🗑️ ' + (s.label || ('מסך ' + (idx + 1)));
+      btn.style.background = 'rgba(208,74,74,.15)';
+      btn.style.borderColor = 'rgba(208,74,74,.4)';
+      btn.addEventListener('click', () => {
+        if (tpl.screens.length === 1) {
+          alert('לא ניתן למחוק את המסך האחרון של האולפן.');
+          return;
+        }
+        const label = s.label || ('מסך ' + (idx + 1));
+        if (!confirm('למחוק את "' + label + '"?\nהפעולה בלתי הפיכה (יישמר רק אחרי "שמור כיול").')) return;
+
+        // מחיקה מהמערך
+        tpl.screens.splice(idx, 1);
+        // עדכון מערך התמונות בהתאם
+        if (userImages[idx]) {
+          if (typeof cleanupMedia === 'function') cleanupMedia(userImages[idx]);
+        }
+        userImages.splice(idx, 1);
+
+        // סגירת המודאל
+        deleteScreenModal.classList.remove('show');
+
+        // ציור מחדש
+        if (typeof renderUploaders === 'function') renderUploaders();
+        if (typeof render === 'function') render();
+        if (typeof renderCorners === 'function') renderCorners();
+      });
+      deleteScreenBtns.appendChild(btn);
+    });
+
+    deleteScreenModal.classList.add('show');
+  }
+
+  deleteScreenBtn.addEventListener('click', () => {
+    if (!calMode) return;
+    showDeleteScreenModal();
+  });
+
+  deleteScreenCancelBtn.addEventListener('click', () => {
+    deleteScreenModal.classList.remove('show');
+  });
+
+  deleteScreenModal.addEventListener('click', (e) => {
+    if (e.target === deleteScreenModal) deleteScreenModal.classList.remove('show');
   });
 })();
 
