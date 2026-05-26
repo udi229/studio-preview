@@ -3220,13 +3220,12 @@ function updateMigrateBtn() {
     const show = calMode && !previewLook;
     addScreenBtn.style.display = show ? '' : 'none';
     deleteScreenBtn.style.display = show ? '' : 'none';
+    console.log('[screens] updateScreenButtonsVisibility - calMode:', calMode, 'previewLook:', previewLook, 'show:', show);
   }
 
   // מאזין לשינוי מצב כיול - הכפתורים יסתתרו/יחשפו לפי הצורך
-  // אנחנו עוטפים את הלחיצות הקיימות
   const origToggleCal = document.getElementById('toggleCal');
   origToggleCal.addEventListener('click', () => {
-    // ה-click האמיתי כבר רץ - calMode כבר משתנה. ננסה בדיליי קטן.
     setTimeout(updateScreenButtonsVisibility, 0);
   });
   const origPreviewLook = document.getElementById('previewLook');
@@ -3240,10 +3239,19 @@ function updateMigrateBtn() {
 
   // ===== הוספת מסך =====
   addScreenBtn.addEventListener('click', () => {
-    if (!calMode) return;
+    console.log('[screens] addScreen clicked - calMode:', calMode);
+    if (!calMode) {
+      alert('יש להיות במצב כיול כדי להוסיף מסך');
+      return;
+    }
     const tpl = TEMPLATES[currentTemplateKey];
-    if (!tpl) return;
+    if (!tpl) {
+      console.error('[screens] no template found for key:', currentTemplateKey);
+      return;
+    }
     if (!tpl.screens) tpl.screens = [];
+
+    console.log('[screens] before add - screens:', tpl.screens.length, 'userImages:', userImages.length);
 
     // מספר המסך החדש
     const newIdx = tpl.screens.length;
@@ -3268,14 +3276,24 @@ function updateMigrateBtn() {
     // עדכון מערך התמונות (userImages) - מוסיף slot חדש
     userImages.push(null);
 
-    // ציור מחדש
-    if (typeof renderUploaders === 'function') renderUploaders();
-    if (typeof render === 'function') render();
-    if (typeof renderCorners === 'function') renderCorners();
+    console.log('[screens] after add - screens:', tpl.screens.length, 'userImages:', userImages.length);
 
-    // הודעה קצרה
-    const screenLabel = 'מסך ' + newNum;
-    console.log('[הוסף מסך] נוסף ' + screenLabel + ' עם פינות ברירת מחדל. גרור את הפינות למקום ושמור.');
+    // ציור מחדש
+    if (typeof renderUploaders === 'function') {
+      console.log('[screens] calling renderUploaders');
+      renderUploaders();
+    } else {
+      console.error('[screens] renderUploaders not found!');
+    }
+    if (typeof render === 'function') {
+      console.log('[screens] calling render');
+      render();
+    }
+    if (typeof renderCorners === 'function') {
+      console.log('[screens] calling renderCorners');
+      renderCorners();
+    }
+    console.log('[screens] DONE');
   });
 
   // ===== מחיקת מסך =====
