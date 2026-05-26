@@ -2,19 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
 <title>תצוגה מקדימה במסכי האולפן</title>
-
-<!-- אייקונים ו-PWA -->
-<link rel="icon" type="image/x-icon" href="favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="icon-16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1a6fd9">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="אולפנים">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -845,10 +833,8 @@ const TEMPLATES = {
 // ====================================================
 
 // ===== חיבור Supabase - אחסון אולפנים בענן =====
-// פרויקט: studio-preview ב-organization udi229+preview@gmail.com's Org
-// הועבר מהפרויקט הישן (brtrtrsayiijzlkdklik) עם תמונות דחוסות ל-WebP
-const SUPABASE_URL = 'https://hzupylvqrxxeocbnmlwa.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_BR0GldP0HR5TS-TjkMQ1jw_SXUZTSsG';
+const SUPABASE_URL = 'https://brtrtrsayiijzlkdklik.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_oD-d-MyuWF01DKJeNWph3A_gG-LdyGb';
 let sb = null;
 try {
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -2027,8 +2013,11 @@ function drawScreenImage(img, corners) {
   // ---- שלב 2: ציור התמונה ברצועות אנכיות ----
   // עבור וידאו - פחות strips (80) לביצועים. עבור תמונה - 200 לאיכות.
   const STRIPS = isVideo ? 80 : 200;
-  // חפיפה קטנה בין רצועות כדי להסתיר תפרים (sub-pixel). לוידאו 0.7px, לתמונה 0.
-  const OVERLAP = isVideo ? 0.7 : 0;
+  // חפיפה בין רצועות כדי להסתיר תפרים (sub-pixel).
+  // לוידאו: 0.7px כי יש פחות רצועות = תפרים בולטים יותר.
+  // לתמונה: 0.4px - חפיפה עדינה שמסתירה את הקווים הדקיקים שנצברים מ-antialiasing
+  // של 200 רצועות, אבל לא כל כך הרבה שתפגע בחדות.
+  const OVERLAP = isVideo ? 0.7 : 0.4;
 
   for (let s = 0; s < STRIPS; s++) {
     const u1 = s / STRIPS;
