@@ -724,11 +724,13 @@
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
     <button class="btn admin-only" id="autoCalBtn" style="background: linear-gradient(135deg, #8a3aa8, #c06ae0); box-shadow: 0 2px 10px rgba(192,106,224,.4);">🤖 כיול אוטומטי</button>
     <button class="btn admin-only" id="addScreenBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4); display:none;">➕ הוסף מסך</button>
+    <button class="btn admin-only" id="renameScreenBtn" style="background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4); display:none;">✏️ שנה שם מסך</button>
     <button class="btn admin-only" id="deleteScreenBtn" style="background: linear-gradient(135deg, #8a2a2a, #d04a4a); box-shadow: 0 2px 10px rgba(208,74,74,.4); display:none;">🗑️ מחק מסך</button>
   </div>
 
   <div class="actions admin-only" style="margin-top:4px;">
     <button class="btn" id="addStudioBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4);">➕ הוסף אולפן חדש</button>
+    <button class="btn" id="renameStudioBtn" style="background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4);">✏️ שנה שם אולפן</button>
     <button class="btn alt" id="deleteStudioBtn">🗑️ מחק אולפן נוכחי</button>
   </div>
 </div>
@@ -821,6 +823,26 @@
 
     <div class="ac-actions-row">
       <button class="btn alt" id="deleteScreenCancelBtn">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- מודאל שינוי שם מסך -->
+<div id="renameScreenModal" class="modal-overlay">
+  <div class="modal-box">
+    <h2>✏️ שנה שם מסך</h2>
+    <div style="color:#9ab; font-size:12px; text-align:center; margin-bottom:12px;">
+      בחר מסך ולאחר מכן הזן שם חדש.<br>
+      השינוי ייכנס לתוקף רק אחרי לחיצה על "שמור כיול".
+    </div>
+
+    <div class="ac-screen-btns" id="renameScreenBtns" style="justify-content:center; margin-bottom:12px;"></div>
+
+    <input type="text" id="renameScreenInput" placeholder="שם חדש למסך" maxlength="30" style="display:none; width:100%; padding:10px 12px; border-radius:8px; border:2px solid rgba(80,160,255,.3); background:rgba(0,0,0,.4); color:#e8e8f0; font-size:14px; text-align:center; margin-bottom:10px;">
+
+    <div class="ac-actions-row">
+      <button class="btn" id="renameScreenSave" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); display:none;">✅ שמור שם</button>
+      <button class="btn alt" id="renameScreenCancel">ביטול</button>
     </div>
   </div>
 </div>
@@ -2743,14 +2765,41 @@ document.getElementById('deleteStudioBtn').addEventListener('click', async () =>
   }
 });
 
-// ===== העברת "כאן בשש" המובנה לענן =====
-// מציג את כפתור ההעברה רק אם studio3 עדיין מובנה (לא הועבר עדיין)
-function updateMigrateBtn() {
-  const btn = document.getElementById('migrateBtn');
-  if (!btn) return;
-  const builtin = TEMPLATES['studio3'];
-  btn.style.display = (builtin && !builtin.cloudId) ? 'inline-flex' : 'none';
-}
+// ===== שינוי שם אולפן =====
+document.getElementById('renameStudioBtn').addEventListener('click', async () => {
+  const tpl = TEMPLATES[currentTemplateKey];
+  if (!tpl) return;
+  if (!tpl.cloudId) {
+    alert('לא ניתן לשנות שם של אולפן מובנה. ניתן לשנות רק אולפנים שנוצרו דרך הכלי.');
+    return;
+  }
+  const newName = prompt('שם חדש לאולפן:', tpl.name);
+  if (newName === null) return; // ביטול
+  const trimmed = newName.trim();
+  if (!trimmed) {
+    alert('השם לא יכול להיות ריק.');
+    return;
+  }
+  if (trimmed === tpl.name) return; // אין שינוי
+
+  const oldName = tpl.name;
+  tpl.name = trimmed;
+  renderTemplateSelector();
+  if (typeof renderLandingStudios === 'function') renderLandingStudios();
+
+  try {
+    await updateStudioInCloud(tpl.cloudId, { name: trimmed });
+  } catch (err) {
+    console.error('[שינוי שם אולפן] שגיאה:', err);
+    alert('שגיאה בשמירת השם: ' + (err.message || ''));
+    // החזרה למצב קודם
+    tpl.name = oldName;
+    renderTemplateSelector();
+    if (typeof renderLandingStudios === 'function') renderLandingStudios();
+  }
+});
+
+
 
 // ============================================
 // ===== כיול אוטומטי (OpenCV.js Homography) =====
@@ -3214,13 +3263,20 @@ function updateMigrateBtn() {
   const deleteScreenModal = document.getElementById('deleteScreenModal');
   const deleteScreenBtns = document.getElementById('deleteScreenBtns');
   const deleteScreenCancelBtn = document.getElementById('deleteScreenCancelBtn');
+  const renameScreenBtn = document.getElementById('renameScreenBtn');
+  const renameScreenModal = document.getElementById('renameScreenModal');
+  const renameScreenBtns = document.getElementById('renameScreenBtns');
+  const renameScreenInput = document.getElementById('renameScreenInput');
+  const renameScreenSave = document.getElementById('renameScreenSave');
+  const renameScreenCancel = document.getElementById('renameScreenCancel');
+  let renameSelectedIdx = -1;
 
-  // הצגה/הסתרה של כפתורי הוסף/מחק מסך לפי מצב כיול
+  // הצגה/הסתרה של כפתורי הוסף/מחק/שנה-שם מסך לפי מצב כיול
   function updateScreenButtonsVisibility() {
     const show = calMode && !previewLook;
     addScreenBtn.style.display = show ? '' : 'none';
     deleteScreenBtn.style.display = show ? '' : 'none';
-    console.log('[screens] updateScreenButtonsVisibility - calMode:', calMode, 'previewLook:', previewLook, 'show:', show);
+    renameScreenBtn.style.display = show ? '' : 'none';
   }
 
   // מאזין לשינוי מצב כיול - הכפתורים יסתתרו/יחשפו לפי הצורך
@@ -3239,23 +3295,21 @@ function updateMigrateBtn() {
 
   // ===== הוספת מסך =====
   addScreenBtn.addEventListener('click', () => {
-    console.log('[screens] addScreen clicked - calMode:', calMode);
     if (!calMode) {
       alert('יש להיות במצב כיול כדי להוסיף מסך');
       return;
     }
     const tpl = TEMPLATES[currentTemplateKey];
-    if (!tpl) {
-      console.error('[screens] no template found for key:', currentTemplateKey);
-      return;
-    }
+    if (!tpl) return;
     if (!tpl.screens) tpl.screens = [];
 
-    console.log('[screens] before add - screens:', tpl.screens.length, 'userImages:', userImages.length);
-
-    // מספר המסך החדש
     const newIdx = tpl.screens.length;
-    const newNum = newIdx + 1;
+
+    // יצירת שם ייחודי - לא לחזור על שם קיים
+    let n = newIdx + 1;
+    const existingLabels = tpl.screens.map(s => s.label);
+    while (existingLabels.includes('מסך ' + n)) n++;
+    const newLabel = 'מסך ' + n;
 
     // פינות ברירת מחדל - באמצע הקנבס, גודל בינוני
     // כדי שלא יכסה בדיוק מסך קיים, מסיט מעט לפי האינדקס
@@ -3269,31 +3323,17 @@ function updateMigrateBtn() {
     ];
 
     tpl.screens.push({
-      label: 'מסך ' + newNum,
+      label: newLabel,
       corners: newCorners
     });
 
     // עדכון מערך התמונות (userImages) - מוסיף slot חדש
     userImages.push(null);
 
-    console.log('[screens] after add - screens:', tpl.screens.length, 'userImages:', userImages.length);
-
     // ציור מחדש
-    if (typeof renderUploaders === 'function') {
-      console.log('[screens] calling renderUploaders');
-      renderUploaders();
-    } else {
-      console.error('[screens] renderUploaders not found!');
-    }
-    if (typeof render === 'function') {
-      console.log('[screens] calling render');
-      render();
-    }
-    if (typeof renderCorners === 'function') {
-      console.log('[screens] calling renderCorners');
-      renderCorners();
-    }
-    console.log('[screens] DONE');
+    if (typeof renderUploaders === 'function') renderUploaders();
+    if (typeof render === 'function') render();
+    if (typeof renderCorners === 'function') renderCorners();
   });
 
   // ===== מחיקת מסך =====
@@ -3349,6 +3389,80 @@ function updateMigrateBtn() {
 
   deleteScreenModal.addEventListener('click', (e) => {
     if (e.target === deleteScreenModal) deleteScreenModal.classList.remove('show');
+  });
+
+  // ===== שינוי שם מסך =====
+  function showRenameScreenModal() {
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || tpl.screens.length === 0) return;
+
+    renameSelectedIdx = -1;
+    renameScreenInput.style.display = 'none';
+    renameScreenSave.style.display = 'none';
+    renameScreenBtns.innerHTML = '';
+
+    tpl.screens.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'ac-screen-btn';
+      btn.textContent = s.label || ('מסך ' + (idx + 1));
+      btn.addEventListener('click', () => {
+        renameSelectedIdx = idx;
+        // סימון הכפתור הנבחר
+        Array.from(renameScreenBtns.children).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // הצגת שדה הקלט עם השם הנוכחי
+        renameScreenInput.value = s.label || ('מסך ' + (idx + 1));
+        renameScreenInput.style.display = 'block';
+        renameScreenSave.style.display = 'inline-flex';
+        renameScreenInput.focus();
+        renameScreenInput.select();
+      });
+      renameScreenBtns.appendChild(btn);
+    });
+
+    renameScreenModal.classList.add('show');
+  }
+
+  renameScreenBtn.addEventListener('click', () => {
+    if (!calMode) return;
+    showRenameScreenModal();
+  });
+
+  renameScreenSave.addEventListener('click', () => {
+    if (renameSelectedIdx < 0) return;
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || !tpl.screens[renameSelectedIdx]) return;
+
+    const newName = renameScreenInput.value.trim();
+    if (!newName) {
+      alert('השם לא יכול להיות ריק.');
+      return;
+    }
+
+    tpl.screens[renameSelectedIdx].label = newName;
+
+    // ציור מחדש - העדכון מופיע ב-uploaders ובפינות
+    if (typeof renderUploaders === 'function') renderUploaders();
+    if (typeof render === 'function') render();
+    if (typeof renderCorners === 'function') renderCorners();
+
+    renameScreenModal.classList.remove('show');
+  });
+
+  renameScreenCancel.addEventListener('click', () => {
+    renameScreenModal.classList.remove('show');
+  });
+
+  renameScreenModal.addEventListener('click', (e) => {
+    if (e.target === renameScreenModal) renameScreenModal.classList.remove('show');
+  });
+
+  // Enter בשדה הקלט = שמירה
+  renameScreenInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      renameScreenSave.click();
+    }
   });
 })();
 
