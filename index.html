@@ -3271,6 +3271,12 @@ document.getElementById('renameStudioBtn').addEventListener('click', async () =>
   const renameScreenCancel = document.getElementById('renameScreenCancel');
   let renameSelectedIdx = -1;
 
+  // הגנה: אם אחד מהאלמנטים חסר - לא להמשיך (כדי לא לשבור שאר קוד)
+  if (!addScreenBtn || !deleteScreenBtn || !renameScreenBtn) {
+    console.warn('[screens] חלק מכפתורי ניהול המסכים חסרים - מדלג על האתחול');
+    return;
+  }
+
   // הצגה/הסתרה של כפתורי הוסף/מחק/שנה-שם מסך לפי מצב כיול
   function updateScreenButtonsVisibility() {
     const show = calMode && !previewLook;
@@ -3281,9 +3287,11 @@ document.getElementById('renameStudioBtn').addEventListener('click', async () =>
 
   // מאזין לשינוי מצב כיול - הכפתורים יסתתרו/יחשפו לפי הצורך
   const origToggleCal = document.getElementById('toggleCal');
-  origToggleCal.addEventListener('click', () => {
-    setTimeout(updateScreenButtonsVisibility, 0);
-  });
+  if (origToggleCal) {
+    origToggleCal.addEventListener('click', () => {
+      setTimeout(updateScreenButtonsVisibility, 0);
+    });
+  }
   const origPreviewLook = document.getElementById('previewLook');
   if (origPreviewLook) {
     origPreviewLook.addEventListener('click', () => {
