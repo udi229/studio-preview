@@ -1291,6 +1291,10 @@ async function deleteStudioFromCloud(cloudId) {
 
 // מעביר אולפן מובנה ל-Supabase עם בדיוק אותם נתונים (כיול, רקע, מידות)
 // נוצר כבר מפורסם - לא טיוטה - כי זה אולפן עובד קיים
+// כפתור ההעברה לענן הוסר, אך קריאות לפונקציה נשארו במספר מקומות.
+// מגדירים אותה כפונקציה ריקה כדי שלא תיזרק שגיאה.
+function updateMigrateBtn() { /* הכפתור הוסר - אין פעולה */ }
+
 async function migrateBuiltinToCloud(tpl) {
   if (!sb) throw new Error('אין חיבור ל-Supabase');
   const { data, error } = await sb
