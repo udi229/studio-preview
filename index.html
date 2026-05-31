@@ -496,6 +496,23 @@
   }
   .modal-status.ok { color: #7fe0a0; }
   .modal-status.err { color: #ff6677; }
+  /* ===== הבהוב "שמור כיול" כשיש שינויים שלא נשמרו ===== */
+  #saveCal.has-changes {
+    animation: saveBlink 1.0s ease-in-out infinite;
+    background: linear-gradient(135deg, #d04a4a, #ff7070) !important;
+    box-shadow: 0 0 0 0 rgba(255,112,112,.9), 0 2px 10px rgba(208,74,74,.5) !important;
+    position: relative;
+  }
+  @keyframes saveBlink {
+    0%   { box-shadow: 0 0 8px 2px rgba(255,112,112,.5), 0 0 16px 4px rgba(255,80,80,.35), 0 2px 10px rgba(208,74,74,.5); transform: scale(1); }
+    50%  { box-shadow: 0 0 16px 6px rgba(255,180,180,.95), 0 0 36px 14px rgba(255,80,80,.7), 0 2px 14px rgba(255,80,80,.7); transform: scale(1.05); }
+    100% { box-shadow: 0 0 8px 2px rgba(255,112,112,.5), 0 0 16px 4px rgba(255,80,80,.35), 0 2px 10px rgba(208,74,74,.5); transform: scale(1); }
+  }
+  #saveCal.has-changes::after {
+    content: ' (יש שינויים!)';
+    font-weight: 700;
+    margin-right: 4px;
+  }
   /* ===== מד שימוש (מנהל) ===== */
   #usageCounter {
     display: none;
@@ -1794,6 +1811,8 @@ async function switchTemplate(key) {
     if (avail.length === 0) return;
     key = avail[0];
   }
+  // ניקוי סימן "יש שינויים" - האולפן הקודם נטוש כפי שהוא
+  if (typeof clearUnsavedChanges === 'function') clearUnsavedChanges();
   currentTemplateKey = key;
   const tpl = TEMPLATES[key];
   canvas.width = tpl.canvasW;
@@ -2427,7 +2446,10 @@ function makeDraggable(dot, sIdx, cIdx) {
     renderCorners();
     render();
   };
-  const onUp = () => { dragging = false; };
+  const onUp = () => {
+    if (dragging) markUnsavedChanges();
+    dragging = false;
+  };
   dot.addEventListener('mousedown', onDown);
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
@@ -2556,6 +2578,8 @@ function enterAdminMode() {
   renderTemplateSelector();
   updateMigrateBtn();
   renderUsageCounter();
+  // סימון המכשיר כמכשיר מנהל - כדי שלא יספור את הכניסות שלו לקאונטר הגלובלי
+  try { localStorage.setItem('isAdminDevice', '1'); } catch (e) {}
   // אם דף הנחיתה פעיל - לרענן כדי להציג גם טיוטות
   if (landingActive) renderLandingStudios();
 }
@@ -2669,6 +2693,7 @@ document.getElementById('saveCal').addEventListener('click', async () => {
       await updateStudioInCloud(tpl.cloudId, { screens: tpl.screens });
       btn.textContent = '✓ נשמר בענן!';
       btn.style.filter = 'brightness(1.3)';
+      clearUnsavedChanges();
     } catch (err) {
       console.error('[שמירת כיול ענן] שגיאה:', err);
       btn.textContent = '❌ שגיאה';
@@ -2679,6 +2704,7 @@ document.getElementById('saveCal').addEventListener('click', async () => {
     if (ok) {
       btn.textContent = '✓ נשמר!';
       btn.style.filter = 'brightness(1.3)';
+      clearUnsavedChanges();
     } else {
       btn.textContent = '❌ שגיאה';
     }
@@ -2833,13 +2859,24 @@ let globalVisitsIncremented = false;
 async function initGlobalVisits() {
   if (globalVisitsIncremented) return;
   globalVisitsIncremented = true;
-  const n = await incrementGlobalVisits();
-  if (n !== null) renderGlobalVisits(n);
-  else {
-    // נסיון fallback - לפחות לשלוף את המספר הקיים
-    const cur = await fetchGlobalVisits();
-    renderGlobalVisits(cur);
+
+  // בדיקה אם המכשיר הזה כבר זוהה כמכשיר מנהל - אם כן, לא סופרים את הכניסה
+  let isAdminDevice = false;
+  try { isAdminDevice = localStorage.getItem('isAdminDevice') === '1'; } catch (e) {}
+
+  let n;
+  if (isAdminDevice) {
+    // מכשיר מנהל - רק שולפים את הערך הנוכחי בלי להעלות
+    n = await fetchGlobalVisits();
+  } else {
+    // משתמש רגיל - מעלים את הקאונטר ב-1
+    n = await incrementGlobalVisits();
+    if (n === null) {
+      // fallback - לפחות לשלוף את הקיים
+      n = await fetchGlobalVisits();
+    }
   }
+  renderGlobalVisits(n);
 }
 
 async function startApp() {
@@ -3588,6 +3625,8 @@ function updateMigrateBtn() {
     // עדכון מערך התמונות (userImages) - מוסיף slot חדש
     userImages.push(null);
 
+    markUnsavedChanges();
+
     console.log('[screens] after add - screens:', tpl.screens.length, 'userImages:', userImages.length);
 
     // ציור מחדש
@@ -3635,6 +3674,8 @@ function updateMigrateBtn() {
           if (typeof cleanupMedia === 'function') cleanupMedia(userImages[idx]);
         }
         userImages.splice(idx, 1);
+
+        markUnsavedChanges();
 
         // סגירת המודאל
         deleteScreenModal.classList.remove('show');
@@ -3708,6 +3749,7 @@ function updateMigrateBtn() {
       return;
     }
     tpl.screens[renameSelectedIdx].label = newName;
+    markUnsavedChanges();
     if (typeof renderUploaders === 'function') renderUploaders();
     if (typeof render === 'function') render();
     if (typeof renderCorners === 'function') renderCorners();
@@ -3801,6 +3843,23 @@ function updateMigrateBtn() {
 })();
 
 // ===== Init =====
+// ============================================
+// ===== סימון "יש שינויים שלא נשמרו" =====
+// ============================================
+// כשמתבצע שינוי במצב כיול (גרירת פינה, הוסף/מחק/שנה-שם מסך) -
+// כפתור "שמור כיול" מתחיל להבהב בניאון אדום כדי להזכיר למנהל לשמור.
+// אחרי לחיצה על "שמור כיול" - הסימן מוסר.
+
+function markUnsavedChanges() {
+  const btn = document.getElementById('saveCal');
+  if (btn) btn.classList.add('has-changes');
+}
+
+function clearUnsavedChanges() {
+  const btn = document.getElementById('saveCal');
+  if (btn) btn.classList.remove('has-changes');
+}
+
 initSplash();
 </script>
 </body>
