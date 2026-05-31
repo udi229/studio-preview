@@ -898,11 +898,13 @@
     <button class="btn admin-only" id="saveCal" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); box-shadow: 0 2px 10px rgba(74,208,122,.4);">✅ שמור כיול</button>
     <button class="btn admin-only" id="autoCalBtn" style="background: linear-gradient(135deg, #8a3aa8, #c06ae0); box-shadow: 0 2px 10px rgba(192,106,224,.4);">🤖 כיול אוטומטי</button>
     <button class="btn admin-only" id="addScreenBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4); display:none;">➕ הוסף מסך</button>
+    <button class="btn admin-only" id="renameScreenBtn" style="background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4); display:none;">✏️ שנה שם מסך</button>
     <button class="btn admin-only" id="deleteScreenBtn" style="background: linear-gradient(135deg, #8a2a2a, #d04a4a); box-shadow: 0 2px 10px rgba(208,74,74,.4); display:none;">🗑️ מחק מסך</button>
   </div>
 
   <div class="actions admin-only" style="margin-top:4px;">
     <button class="btn" id="addStudioBtn" style="background: linear-gradient(135deg, #2a5fa8, #4a8de0); box-shadow: 0 2px 10px rgba(74,141,224,.4);">➕ הוסף אולפן חדש</button>
+    <button class="btn" id="renameStudioBtn" style="background: linear-gradient(135deg, #8a6a2a, #d0a04a); box-shadow: 0 2px 10px rgba(208,160,74,.4);">✏️ שנה שם אולפן</button>
     <button class="btn alt" id="deleteStudioBtn">🗑️ מחק אולפן נוכחי</button>
   </div>
 </div>
@@ -995,6 +997,26 @@
 
     <div class="ac-actions-row">
       <button class="btn alt" id="deleteScreenCancelBtn">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- מודאל שינוי שם מסך -->
+<div id="renameScreenModal" class="modal-overlay">
+  <div class="modal-box">
+    <h2>✏️ שנה שם מסך</h2>
+    <div style="color:#9ab; font-size:12px; text-align:center; margin-bottom:12px;">
+      בחר מסך ולאחר מכן הזן שם חדש.<br>
+      השינוי ייכנס לתוקף רק אחרי לחיצה על "שמור כיול".
+    </div>
+
+    <div class="ac-screen-btns" id="renameScreenBtns" style="justify-content:center; margin-bottom:12px;"></div>
+
+    <input type="text" id="renameScreenInput" placeholder="שם חדש למסך" maxlength="30" style="display:none; width:100%; padding:10px 12px; border-radius:8px; border:2px solid rgba(80,160,255,.3); background:rgba(0,0,0,.4); color:#e8e8f0; font-size:14px; text-align:center; margin-bottom:10px;">
+
+    <div class="ac-actions-row">
+      <button class="btn" id="renameScreenSave" style="background: linear-gradient(135deg, #2a8a4a, #4ad07a); display:none;">✅ שמור שם</button>
+      <button class="btn alt" id="renameScreenCancel">ביטול</button>
     </div>
   </div>
 </div>
@@ -1643,24 +1665,24 @@ function animateLandingEntry() {
   requestAnimationFrame(function(){
     requestAnimationFrame(function(){
       if (logoBox) {
-        logoBox.style.transition = 'transform 0.9s cubic-bezier(.34,1.4,.64,1), opacity 0.5s';
+        logoBox.style.transition = 'transform 1.3s cubic-bezier(.34,1.4,.64,1), opacity 0.7s';
         logoBox.style.transform = 'translateY(0) rotate(0)';
         logoBox.style.opacity = '1';
       }
       if (sub) {
-        sub.style.transition = 'transform 0.6s 0.4s cubic-bezier(.34,1.4,.64,1), opacity 0.4s 0.4s';
+        sub.style.transition = 'transform 0.9s 0.6s cubic-bezier(.34,1.4,.64,1), opacity 0.6s 0.6s';
         sub.style.transform = 'translateY(0)';
         sub.style.opacity = '1';
       }
       studios.forEach(function(s, i){
-        const delay = 0.7 + i * 0.14;
-        s.style.transition = 'transform 0.6s ' + delay + 's cubic-bezier(.34,1.4,.64,1), opacity 0.4s ' + delay + 's';
+        const delay = 1.0 + i * 0.22;
+        s.style.transition = 'transform 0.85s ' + delay + 's cubic-bezier(.34,1.4,.64,1), opacity 0.6s ' + delay + 's';
         s.style.transform = 'translateX(0)';
         s.style.opacity = '1';
       });
       if (foot) {
-        const footDelay = 0.7 + studios.length * 0.14 + 0.2;
-        foot.style.transition = 'opacity 0.5s ' + footDelay + 's';
+        const footDelay = 1.0 + studios.length * 0.22 + 0.3;
+        foot.style.transition = 'opacity 0.6s ' + footDelay + 's';
         foot.style.opacity = '1';
       }
     });
@@ -2985,6 +3007,39 @@ document.getElementById('deleteStudioBtn').addEventListener('click', async () =>
   }
 });
 
+// ===== שינוי שם אולפן =====
+document.getElementById('renameStudioBtn').addEventListener('click', async () => {
+  const tpl = TEMPLATES[currentTemplateKey];
+  if (!tpl) return;
+  if (!tpl.cloudId) {
+    alert('לא ניתן לשנות שם של אולפן מובנה. ניתן לשנות רק אולפנים שנוצרו דרך הכלי.');
+    return;
+  }
+  const newName = prompt('שם חדש לאולפן:', tpl.name);
+  if (newName === null) return; // ביטול
+  const trimmed = newName.trim();
+  if (!trimmed) {
+    alert('השם לא יכול להיות ריק.');
+    return;
+  }
+  if (trimmed === tpl.name) return;
+
+  const oldName = tpl.name;
+  tpl.name = trimmed;
+  renderTemplateSelector();
+  if (typeof renderLandingStudios === 'function') renderLandingStudios();
+
+  try {
+    await updateStudioInCloud(tpl.cloudId, { name: trimmed });
+  } catch (err) {
+    console.error('[שינוי שם אולפן] שגיאה:', err);
+    alert('שגיאה בשמירת השם: ' + (err.message || ''));
+    tpl.name = oldName;
+    renderTemplateSelector();
+    if (typeof renderLandingStudios === 'function') renderLandingStudios();
+  }
+});
+
 // ===== העברת "כאן בשש" המובנה לענן =====
 // מציג את כפתור ההעברה רק אם studio3 עדיין מובנה (לא הועבר עדיין)
 function updateMigrateBtn() {
@@ -3456,20 +3511,35 @@ function updateMigrateBtn() {
   const deleteScreenModal = document.getElementById('deleteScreenModal');
   const deleteScreenBtns = document.getElementById('deleteScreenBtns');
   const deleteScreenCancelBtn = document.getElementById('deleteScreenCancelBtn');
+  const renameScreenBtn = document.getElementById('renameScreenBtn');
+  const renameScreenModal = document.getElementById('renameScreenModal');
+  const renameScreenBtns = document.getElementById('renameScreenBtns');
+  const renameScreenInput = document.getElementById('renameScreenInput');
+  const renameScreenSave = document.getElementById('renameScreenSave');
+  const renameScreenCancel = document.getElementById('renameScreenCancel');
+  let renameSelectedIdx = -1;
 
-  // הצגה/הסתרה של כפתורי הוסף/מחק מסך לפי מצב כיול
+  // הגנה: אם אחד מהאלמנטים חסר - לא להמשיך
+  if (!addScreenBtn || !deleteScreenBtn || !renameScreenBtn) {
+    console.warn('[screens] חלק מכפתורי ניהול המסכים חסרים - מדלג');
+    return;
+  }
+
+  // הצגה/הסתרה של כפתורי הוסף/מחק/שנה-שם מסך לפי מצב כיול
   function updateScreenButtonsVisibility() {
     const show = calMode && !previewLook;
     addScreenBtn.style.display = show ? '' : 'none';
     deleteScreenBtn.style.display = show ? '' : 'none';
-    console.log('[screens] updateScreenButtonsVisibility - calMode:', calMode, 'previewLook:', previewLook, 'show:', show);
+    renameScreenBtn.style.display = show ? '' : 'none';
   }
 
-  // מאזין לשינוי מצב כיול - הכפתורים יסתתרו/יחשפו לפי הצורך
+  // מאזין לשינוי מצב כיול
   const origToggleCal = document.getElementById('toggleCal');
-  origToggleCal.addEventListener('click', () => {
-    setTimeout(updateScreenButtonsVisibility, 0);
-  });
+  if (origToggleCal) {
+    origToggleCal.addEventListener('click', () => {
+      setTimeout(updateScreenButtonsVisibility, 0);
+    });
+  }
   const origPreviewLook = document.getElementById('previewLook');
   if (origPreviewLook) {
     origPreviewLook.addEventListener('click', () => {
@@ -3591,6 +3661,72 @@ function updateMigrateBtn() {
 
   deleteScreenModal.addEventListener('click', (e) => {
     if (e.target === deleteScreenModal) deleteScreenModal.classList.remove('show');
+  });
+
+  // ===== שינוי שם מסך =====
+  function showRenameScreenModal() {
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || tpl.screens.length === 0) return;
+
+    renameSelectedIdx = -1;
+    renameScreenInput.style.display = 'none';
+    renameScreenSave.style.display = 'none';
+    renameScreenBtns.innerHTML = '';
+
+    tpl.screens.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'ac-screen-btn';
+      btn.textContent = s.label || ('מסך ' + (idx + 1));
+      btn.addEventListener('click', () => {
+        renameSelectedIdx = idx;
+        Array.from(renameScreenBtns.children).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renameScreenInput.value = s.label || ('מסך ' + (idx + 1));
+        renameScreenInput.style.display = 'block';
+        renameScreenSave.style.display = 'inline-flex';
+        renameScreenInput.focus();
+        renameScreenInput.select();
+      });
+      renameScreenBtns.appendChild(btn);
+    });
+
+    renameScreenModal.classList.add('show');
+  }
+
+  renameScreenBtn.addEventListener('click', () => {
+    if (!calMode) return;
+    showRenameScreenModal();
+  });
+
+  renameScreenSave.addEventListener('click', () => {
+    if (renameSelectedIdx < 0) return;
+    const tpl = TEMPLATES[currentTemplateKey];
+    if (!tpl || !tpl.screens || !tpl.screens[renameSelectedIdx]) return;
+    const newName = renameScreenInput.value.trim();
+    if (!newName) {
+      alert('השם לא יכול להיות ריק.');
+      return;
+    }
+    tpl.screens[renameSelectedIdx].label = newName;
+    if (typeof renderUploaders === 'function') renderUploaders();
+    if (typeof render === 'function') render();
+    if (typeof renderCorners === 'function') renderCorners();
+    renameScreenModal.classList.remove('show');
+  });
+
+  renameScreenCancel.addEventListener('click', () => {
+    renameScreenModal.classList.remove('show');
+  });
+
+  renameScreenModal.addEventListener('click', (e) => {
+    if (e.target === renameScreenModal) renameScreenModal.classList.remove('show');
+  });
+
+  renameScreenInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      renameScreenSave.click();
+    }
   });
 })();
 
