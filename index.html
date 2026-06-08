@@ -902,6 +902,38 @@
       <input type="number" id="padInput" value="60" min="0" max="200" step="10">
     </label>
     <span style="color:#ffd080; font-size:11px;">↑ הגדל אם הפינות צריכות להיות עוד יותר רחוק מהפריים</span>
+    <div style="display:flex; align-items:center; gap:6px; margin-right:14px; padding-right:14px; border-right:1px solid rgba(255,208,128,.3);">
+      <span style="color:#ffd080; font-size:12px; font-weight:bold;">🔬 נקודות כיול:</span>
+      <select id="meshScreenSelect" style="background:#1a1a2a; color:#fff; border:1px solid #444; padding:3px 6px; border-radius:6px; font-size:12px;"></select>
+      <button class="btn" id="meshMinusBtn" type="button" style="padding:4px 10px; font-size:14px; min-width:32px;" title="הסר זוג נקודות אמצע">➖</button>
+      <span id="meshCountDisplay" style="color:#fff; font-size:13px; font-weight:bold; min-width:36px; text-align:center;">4</span>
+      <button class="btn" id="meshPlusBtn" type="button" style="padding:4px 10px; font-size:14px; min-width:32px;" title="הוסף זוג נקודות אמצע (עד 30 לכל קצה)">➕</button>
+    </div>
+    <div id="curvePanel" style="display:none; width:100%; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,208,128,.3); display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
+      <span style="color:#ffd080; font-size:12px; font-weight:bold;">📐 קימור:</span>
+      <label style="color:#fff; font-size:12px; display:flex; align-items:center; gap:6px;">
+        ↑ עליון:
+        <input type="range" id="curveTopSlider" min="-100" max="100" value="0" step="1" style="width:130px;">
+        <span id="curveTopVal" style="min-width:32px; text-align:center; font-family:monospace;">0</span>
+      </label>
+      <label style="color:#fff; font-size:12px; display:flex; align-items:center; gap:6px;">
+        ↓ תחתון:
+        <input type="range" id="curveBotSlider" min="-100" max="100" value="0" step="1" style="width:130px;">
+        <span id="curveBotVal" style="min-width:32px; text-align:center; font-family:monospace;">0</span>
+      </label>
+      <button class="btn alt" id="curveResetBtn" type="button" style="padding:4px 10px; font-size:11px;">איפוס</button>
+      <span style="color:#888; font-size:11px;">חיובי = קעור (פנימה), שלילי = קמור (החוצה)</span>
+    </div>
+    <div id="sharpenPanel" style="width:100%; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,208,128,.3); display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
+      <span style="color:#ffd080; font-size:12px; font-weight:bold;">✨ חדות (ליטוש):</span>
+      <select id="sharpenScreenSelect" style="background:#1a1a2a; color:#fff; border:1px solid #444; padding:3px 6px; border-radius:6px; font-size:12px;"></select>
+      <label style="color:#fff; font-size:12px; display:flex; align-items:center; gap:6px;">
+        רמה:
+        <input type="range" id="sharpenSlider" min="0" max="200" value="0" step="5" style="width:160px;">
+        <span id="sharpenVal" style="min-width:38px; text-align:center; font-family:monospace;">0%</span>
+      </label>
+      <span style="color:#888; font-size:11px;">0 = ללא, 100 = רגיל, 200 = חזק</span>
+    </div>
   </div>
 
   <div class="uploaders" id="uploaders"></div>
@@ -1849,14 +1881,14 @@ async function switchTemplate(key) {
   bgImage.onload = () => {
     if (myToken !== switchToken) return;
     render();
-    if (calMode) renderCorners();
+    if (calMode) { renderCorners(); if (typeof refreshMeshUI === 'function') refreshMeshUI(); }
   };
   if (bgData) {
     bgImage.src = bgData;
   } else {
     // לא ניתן לטעון רקע - מציירים בכל זאת (מסכים על רקע שחור)
     render();
-    if (calMode) renderCorners();
+    if (calMode) { renderCorners(); if (typeof refreshMeshUI === 'function') refreshMeshUI(); }
   }
 }
 
@@ -2106,7 +2138,7 @@ function render() {
   const tpl = getCurrentTemplate();
   tpl.screens.forEach((screen, idx) => {
     if (userImages[idx] && showPreview) {
-      drawScreenImage(userImages[idx], screen.corners);
+      drawScreenImage(userImages[idx], screen.corners, screen);
     } else if (calMode && !previewLook) {
       drawCalibrationPlaceholder(screen.corners, screen.label);
     } else {
@@ -2135,14 +2167,15 @@ function drawPlaceholder(corners, labelTxt) {
   // רקע כהה למסך
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i=1; i<4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
   ctx.fillStyle = '#0a0a0f';
   ctx.fill();
 
-  // מרכז המסך (מוגבל לתחום הנראה בפריים)
-  let cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
-  let cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+  // מרכז המסך (ממוצע כל הנקודות)
+  let cx = 0, cy = 0;
+  for (const p of pts) { cx += p.x; cy += p.y; }
+  cx /= pts.length; cy /= pts.length;
   cx = Math.max(80, Math.min(canvas.width - 80, cx));
   cy = Math.max(40, Math.min(canvas.height - 40, cy));
 
@@ -2211,14 +2244,15 @@ function drawCalibrationPlaceholder(corners, labelTxt) {
   
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i=1; i<4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
   ctx.fillStyle = 'rgba(20,30,50,.6)'; ctx.fill();
   ctx.strokeStyle = 'rgba(80,160,255,.5)'; ctx.lineWidth = 2;
   ctx.setLineDash([8,4]); ctx.stroke(); ctx.setLineDash([]);
   
-  let cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x)/4;
-  let cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y)/4;
+  let cx = 0, cy = 0;
+  for (const p of pts) { cx += p.x; cy += p.y; }
+  cx /= pts.length; cy /= pts.length;
   cx = Math.max(50, Math.min(canvas.width-50, cx));
   cy = Math.max(30, Math.min(canvas.height-30, cy));
   ctx.fillStyle = '#9ac'; ctx.font = '20px Arial'; ctx.textAlign = 'center';
@@ -2269,7 +2303,7 @@ function getVideoFrameCanvas(video) {
   return entry.canvas;
 }
 
-function drawScreenImage(img, corners) {
+function drawScreenImage(img, corners, screen) {
   // הגנה: ודא שהתמונה/וידאו נטענה לגמרי
   const isVideo = img && img._isVideo;
   const vw = isVideo ? (img.videoWidth || img.width) : (img && img.width);
@@ -2292,91 +2326,188 @@ function drawScreenImage(img, corners) {
     ih = vh;
   }
 
-  const tl={x:corners[0].x*canvas.width, y:corners[0].y*canvas.height};
-  const tr={x:corners[1].x*canvas.width, y:corners[1].y*canvas.height};
-  const br={x:corners[2].x*canvas.width, y:corners[2].y*canvas.height};
-  const bl={x:corners[3].x*canvas.width, y:corners[3].y*canvas.height};
+  // מבנה corners: מערך באורך זוגי, החצי הראשון = שורה עליונה משמאל לימין,
+  // החצי השני = שורה תחתונה מימין לשמאל. כך [TL,TR,BR,BL] של 4 פינות
+  // הוא מקרה פרטי, ועם N>4 ניתן לתאר קיר מעוקל עם נקודות אמצע.
+  const N = corners.length;
+  const half = N >> 1;
+  const topPts = [];
+  const botPts = [];
+  for (let i = 0; i < half; i++) {
+    topPts.push({x: corners[i].x * canvas.width, y: corners[i].y * canvas.height});
+  }
+  for (let i = N - 1; i >= half; i--) {
+    botPts.push({x: corners[i].x * canvas.width, y: corners[i].y * canvas.height});
+  }
 
   // ---- שלב 1: רקע שחור על אזור המסך ----
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(tl.x, tl.y);
-  ctx.lineTo(tr.x, tr.y);
-  ctx.lineTo(br.x, br.y);
-  ctx.lineTo(bl.x, bl.y);
+  ctx.moveTo(corners[0].x * canvas.width, corners[0].y * canvas.height);
+  for (let i = 1; i < N; i++) {
+    ctx.lineTo(corners[i].x * canvas.width, corners[i].y * canvas.height);
+  }
   ctx.closePath();
   ctx.fillStyle = '#000';
   ctx.fill();
   ctx.restore();
 
-  // ---- שלב 2: ציור התמונה ברצועות אנכיות ----
-  // עבור וידאו - פחות strips (80) לביצועים. עבור תמונה - 200 לאיכות.
-  const STRIPS = isVideo ? 80 : 200;
-  // חפיפה בין רצועות כדי להסתיר תפרים (sub-pixel).
-  // לוידאו: 0.7px כי יש פחות רצועות = תפרים בולטים יותר.
-  // לתמונה: 0.4px - חפיפה עדינה שמסתירה את הקווים הדקיקים שנצברים מ-antialiasing
-  // של 200 רצועות, אבל לא כל כך הרבה שתפגע בחדות.
+  // ---- שלב 2: ציור התמונה ברצועות אנכיות, segment אחר segment ----
+  // לכל segment בין נקודות אמצע סמוכות יש sub-strips פנימיים לרינדור חלק.
+  const segments = half - 1;
+  const TOTAL_STRIPS = isVideo ? 80 : 200;
+  const stripsPerSeg = Math.max(2, Math.round(TOTAL_STRIPS / segments));
   const OVERLAP = isVideo ? 0.7 : 0.4;
 
-  for (let s = 0; s < STRIPS; s++) {
-    const u1 = s / STRIPS;
-    const u2 = (s + 1) / STRIPS;
+  for (let seg = 0; seg < segments; seg++) {
+    const xFracL = seg / segments;
+    const xFracR = (seg + 1) / segments;
+    const segTL = topPts[seg];
+    const segTR = topPts[seg + 1];
+    const segBL = botPts[seg];
+    const segBR = botPts[seg + 1];
 
-    // פינות הרצועה במרחב היעד
-    const topL = lerpPt(tl, tr, u1);
-    const topR = lerpPt(tl, tr, u2);
-    const botL = lerpPt(bl, br, u1);
-    const botR = lerpPt(bl, br, u2);
+    for (let s = 0; s < stripsPerSeg; s++) {
+      const t1 = s / stripsPerSeg;
+      const t2 = (s + 1) / stripsPerSeg;
+      const u1 = xFracL + t1 * (xFracR - xFracL);
+      const u2 = xFracL + t2 * (xFracR - xFracL);
 
-    // הרחבת ה-clip בכיוון אופקי (פנימה לתוך השכן) - מסתיר תפרים
-    // מחשבים וקטור יחידה בכיוון הרצועה ומזיזים את 4 הפינות פנימה
-    let clipTopL = topL, clipTopR = topR, clipBotL = botL, clipBotR = botR;
-    if (OVERLAP > 0) {
-      const dxT = topR.x - topL.x, dyT = topR.y - topL.y;
-      const lenT = Math.hypot(dxT, dyT) || 1;
-      const oxT = (dxT / lenT) * OVERLAP, oyT = (dyT / lenT) * OVERLAP;
-      const dxB = botR.x - botL.x, dyB = botR.y - botL.y;
-      const lenB = Math.hypot(dxB, dyB) || 1;
-      const oxB = (dxB / lenB) * OVERLAP, oyB = (dyB / lenB) * OVERLAP;
-      clipTopL = { x: topL.x - oxT, y: topL.y - oyT };
-      clipTopR = { x: topR.x + oxT, y: topR.y + oyT };
-      clipBotL = { x: botL.x - oxB, y: botL.y - oyB };
-      clipBotR = { x: botR.x + oxB, y: botR.y + oyB };
+      // פינות הרצועה במרחב היעד - lerp בתוך ה-segment
+      const topL = lerpPt(segTL, segTR, t1);
+      const topR = lerpPt(segTL, segTR, t2);
+      const botL = lerpPt(segBL, segBR, t1);
+      const botR = lerpPt(segBL, segBR, t2);
+
+      // הרחבת ה-clip בכיוון אופקי (פנימה לתוך השכן) - מסתיר תפרים
+      let clipTopL = topL, clipTopR = topR, clipBotL = botL, clipBotR = botR;
+      if (OVERLAP > 0) {
+        const dxT = topR.x - topL.x, dyT = topR.y - topL.y;
+        const lenT = Math.hypot(dxT, dyT) || 1;
+        const oxT = (dxT / lenT) * OVERLAP, oyT = (dyT / lenT) * OVERLAP;
+        const dxB = botR.x - botL.x, dyB = botR.y - botL.y;
+        const lenB = Math.hypot(dxB, dyB) || 1;
+        const oxB = (dxB / lenB) * OVERLAP, oyB = (dyB / lenB) * OVERLAP;
+        clipTopL = { x: topL.x - oxT, y: topL.y - oyT };
+        clipTopR = { x: topR.x + oxT, y: topR.y + oyT };
+        clipBotL = { x: botL.x - oxB, y: botL.y - oyB };
+        clipBotR = { x: botR.x + oxB, y: botR.y + oyB };
+      }
+
+      // פרוסת מקור (רצועה אנכית מהתמונה)
+      const sx = u1 * iw;
+      const sw = (u2 - u1) * iw;
+      if (sw <= 0) continue;
+
+      // טרנספורם אפיני: ממפה (sx,0)->topL, (sx+sw,0)->topR, (sx,ih)->botL
+      const s0x=sx, s1x=sx+sw, s2x=sx;
+      const s0y=0,  s1y=0,     s2y=ih;
+      const denom = (s1x-s0x)*(s2y-s0y) - (s2x-s0x)*(s1y-s0y);
+      if (Math.abs(denom) < 1e-9) continue;
+      const a = ((topR.x-topL.x)*(s2y-s0y) - (botL.x-topL.x)*(s1y-s0y)) / denom;
+      const c = ((botL.x-topL.x)*(s1x-s0x) - (topR.x-topL.x)*(s2x-s0x)) / denom;
+      const e = topL.x - a*s0x - c*s0y;
+      const b = ((topR.y-topL.y)*(s2y-s0y) - (botL.y-topL.y)*(s1y-s0y)) / denom;
+      const d = ((botL.y-topL.y)*(s1x-s0x) - (topR.y-topL.y)*(s2x-s0x)) / denom;
+      const f = topL.y - b*s0x - d*s0y;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(clipTopL.x, clipTopL.y);
+      ctx.lineTo(clipTopR.x, clipTopR.y);
+      ctx.lineTo(clipBotR.x, clipBotR.y);
+      ctx.lineTo(clipBotL.x, clipBotL.y);
+      ctx.closePath();
+      ctx.clip();
+      ctx.setTransform(a, b, c, d, e, f);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = isVideo ? 'medium' : 'high';
+      ctx.drawImage(source, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.restore();
     }
-
-    // פרוסת מקור (רצועה אנכית מהתמונה)
-    const sx = u1 * iw;
-    const sw = (u2 - u1) * iw;
-    if (sw <= 0) continue;
-
-    // טרנספורם אפיני: ממפה (sx,0)->topL, (sx+sw,0)->topR, (sx,ih)->botL
-    const s0x=sx, s1x=sx+sw, s2x=sx;
-    const s0y=0,  s1y=0,     s2y=ih;
-    const denom = (s1x-s0x)*(s2y-s0y) - (s2x-s0x)*(s1y-s0y);
-    if (Math.abs(denom) < 1e-9) continue;
-    const a = ((topR.x-topL.x)*(s2y-s0y) - (botL.x-topL.x)*(s1y-s0y)) / denom;
-    const c = ((botL.x-topL.x)*(s1x-s0x) - (topR.x-topL.x)*(s2x-s0x)) / denom;
-    const e = topL.x - a*s0x - c*s0y;
-    const b = ((topR.y-topL.y)*(s2y-s0y) - (botL.y-topL.y)*(s1y-s0y)) / denom;
-    const d = ((botL.y-topL.y)*(s1x-s0x) - (topR.y-topL.y)*(s2x-s0x)) / denom;
-    const f = topL.y - b*s0x - d*s0y;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(clipTopL.x, clipTopL.y);
-    ctx.lineTo(clipTopR.x, clipTopR.y);
-    ctx.lineTo(clipBotR.x, clipBotR.y);
-    ctx.lineTo(clipBotL.x, clipBotL.y);
-    ctx.closePath();
-    ctx.clip();
-    ctx.setTransform(a, b, c, d, e, f);
-    // לוידאו - medium לאיזון. לתמונה - high.
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = isVideo ? 'medium' : 'high';
-    ctx.drawImage(source, 0, 0);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.restore();
   }
+
+  // ---- שלב 3: ליטוש חדות (unsharp mask) על אזור המסך ----
+  const sharpenAmount = (screen && Number(screen.sharpen)) || 0;
+  if (sharpenAmount > 0 && !isVideo) {
+    applySharpenToPolygon(corners, sharpenAmount);
+  }
+}
+
+// מחיל unsharp mask על אזור המוגדר ע"י פוליגון של corners
+// amount: 0..200 (0=ללא, 100=רגיל, 200=חזק)
+function applySharpenToPolygon(corners, amount) {
+  const N = corners.length;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const c of corners) {
+    const x = c.x * canvas.width;
+    const y = c.y * canvas.height;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  const pad = 2;
+  minX = Math.max(0, Math.floor(minX - pad));
+  minY = Math.max(0, Math.floor(minY - pad));
+  maxX = Math.min(canvas.width, Math.ceil(maxX + pad));
+  maxY = Math.min(canvas.height, Math.ceil(maxY + pad));
+  const w = maxX - minX, h = maxY - minY;
+  if (w <= 0 || h <= 0) return;
+
+  let imgData;
+  try {
+    imgData = ctx.getImageData(minX, minY, w, h);
+  } catch (e) {
+    return; // canvas tainted
+  }
+  const src = imgData.data;
+
+  // mask של ה-polygon - לציור החדות רק בתוכו
+  const maskC = document.createElement('canvas');
+  maskC.width = w; maskC.height = h;
+  const maskCx = maskC.getContext('2d');
+  maskCx.fillStyle = '#fff';
+  maskCx.beginPath();
+  maskCx.moveTo(corners[0].x * canvas.width - minX, corners[0].y * canvas.height - minY);
+  for (let i = 1; i < N; i++) {
+    maskCx.lineTo(corners[i].x * canvas.width - minX, corners[i].y * canvas.height - minY);
+  }
+  maskCx.closePath();
+  maskCx.fill();
+  const maskData = maskCx.getImageData(0, 0, w, h).data;
+
+  // box blur 3x3
+  const blurred = new Uint8ClampedArray(src.length);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = (y * w + x) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            sum += src[((y + dy) * w + (x + dx)) * 4 + ch];
+          }
+        }
+        blurred[idx + ch] = sum / 9;
+      }
+    }
+  }
+  // unsharp mask: output = original + factor * (original - blur)
+  const factor = amount / 100;
+  for (let i = 0; i < src.length; i += 4) {
+    if (maskData[i + 3] === 0) continue;
+    for (let ch = 0; ch < 3; ch++) {
+      const orig = src[i + ch];
+      const blur = blurred[i + ch];
+      let v = orig + factor * (orig - blur);
+      if (v < 0) v = 0;
+      else if (v > 255) v = 255;
+      src[i + ch] = v;
+    }
+  }
+  ctx.putImageData(imgData, minX, minY);
 }
 // ===== כיול פינות =====
 function renderCorners() {
@@ -2423,8 +2554,17 @@ function renderCorners() {
       dot.className = 'corner-dot s' + sIdx;
       dot.style.left = (offsetX + c.x * stageW) + 'px';
       dot.style.top = (offsetY + c.y * stageH) + 'px';
-      const labels = ['↖', '↗', '↘', '↙'];
-      dot.setAttribute('data-label', `M${sIdx+1}${labels[cIdx]}`);
+      const N = screen.corners.length;
+      const half = N >> 1;
+      // תווית: לזוג TL/TR/BR/BL הקיצוני - חצים. לאמצעיים - מספר.
+      let label;
+      if (cIdx === 0) label = '↖';
+      else if (cIdx === half - 1) label = '↗';
+      else if (cIdx === half) label = '↘';
+      else if (cIdx === N - 1) label = '↙';
+      else if (cIdx < half) label = 'T' + cIdx; // נקודת אמצע עליונה
+      else label = 'B' + (N - 1 - cIdx); // נקודת אמצע תחתונה
+      dot.setAttribute('data-label', `M${sIdx+1}${label}`);
       overlay.appendChild(dot);
       makeDraggable(dot, sIdx, cIdx);
     });
@@ -2479,6 +2619,7 @@ document.getElementById('toggleCal').addEventListener('click', () => {
   document.getElementById('padControls').classList.toggle('show', calMode);
   if (calMode) {
     document.getElementById('sceneWrap').style.padding = CAL_PAD + 'px';
+    if (typeof refreshMeshUI === 'function') refreshMeshUI();
   } else {
     document.getElementById('sceneWrap').style.padding = '0';
   }
@@ -2521,6 +2662,249 @@ document.getElementById('previewLook').addEventListener('click', () => {
 });
 
 window.addEventListener('resize', () => { if (calMode) renderCorners(); });
+
+// ===== ניהול מספר נקודות הכיול (4 עד 60 - דהיינו 2 עד 30 לכל קצה) =====
+function refreshMeshUI() {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('meshScreenSelect');
+  if (!tpl || !tpl.screens || !sel) return;
+  const prevVal = sel.value;
+  sel.innerHTML = '';
+  tpl.screens.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = s.label || ('מסך ' + (i + 1));
+    sel.appendChild(opt);
+  });
+  if (prevVal && Number(prevVal) < tpl.screens.length) sel.value = prevVal;
+  updateMeshCountDisplay();
+  if (typeof refreshCurveUI === 'function') refreshCurveUI();
+  if (typeof refreshSharpenUI === 'function') refreshSharpenUI();
+}
+function updateMeshCountDisplay() {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('meshScreenSelect');
+  if (!tpl || !sel) return;
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  if (!screen) return;
+  document.getElementById('meshCountDisplay').textContent = screen.corners.length;
+}
+// מוסיף זוג נקודות אמצע: אחת בכל קצה במיקום עם הפער הגדול ביותר
+function addMeshPair(sIdx) {
+  const tpl = getCurrentTemplate();
+  const screen = tpl.screens[sIdx];
+  const c = screen.corners;
+  const N = c.length;
+  if (N >= 60) return;
+  const half = N >> 1;
+  // מוצא את ה-segment העליון עם הפער הגדול ביותר (X) ומוסיף שם
+  let bestSeg = 0, bestGap = -1;
+  for (let i = 0; i < half - 1; i++) {
+    const gap = Math.abs(c[i + 1].x - c[i].x);
+    if (gap > bestGap) { bestGap = gap; bestSeg = i; }
+  }
+  // נקודה עליונה חדשה = ממוצע בין c[bestSeg] ל-c[bestSeg+1]
+  const topMid = {
+    x: (c[bestSeg].x + c[bestSeg + 1].x) / 2,
+    y: (c[bestSeg].y + c[bestSeg + 1].y) / 2
+  };
+  // הנקודה התחתונה התואמת במערך הקיים היא במיקום (N - 1 - bestSeg) ל-(N - 2 - bestSeg).
+  // אנחנו רוצים להוסיף נקודת אמצע ביניהן.
+  const botL_idx = N - 1 - bestSeg;        // נקודה תחתונה שמאלה (תואמת c[bestSeg])
+  const botR_idx = N - 2 - bestSeg;        // נקודה תחתונה ימינה (תואמת c[bestSeg+1])
+  const botMid = {
+    x: (c[botL_idx].x + c[botR_idx].x) / 2,
+    y: (c[botL_idx].y + c[botR_idx].y) / 2
+  };
+  // הכנסה: עליונה ב-bestSeg+1, תחתונה ב-botL_idx (אחרי ההכנסה העליונה האינדקסים זזים)
+  c.splice(bestSeg + 1, 0, topMid);
+  // עכשיו botL_idx זז ב-1 כי הוספנו לפניו
+  c.splice(botL_idx + 1, 0, botMid);
+  markUnsavedChanges();
+  renderCorners();
+  render();
+  updateMeshCountDisplay();
+}
+// מסיר זוג נקודות אמצע: ה-segment הקטן ביותר
+function removeMeshPair(sIdx) {
+  const tpl = getCurrentTemplate();
+  const screen = tpl.screens[sIdx];
+  const c = screen.corners;
+  const N = c.length;
+  if (N <= 4) return;
+  const half = N >> 1;
+  // מוצא את ה-segment העליון הקטן ביותר ומסיר את נקודת האמצע שלו
+  // נקודות אמצע עליונות: אינדקסים 1 .. half-2
+  let bestIdx = 1;
+  let bestGap = Infinity;
+  for (let i = 1; i < half - 1; i++) {
+    const gap = Math.abs(c[i + 1].x - c[i - 1].x);
+    if (gap < bestGap) { bestGap = gap; bestIdx = i; }
+  }
+  // הנקודה התחתונה התואמת = (N - 1 - bestIdx)
+  const botIdx = N - 1 - bestIdx;
+  // הסרה - מתחילים מהאינדקס הגבוה כדי לא לזיז את הקטן
+  c.splice(botIdx, 1);
+  c.splice(bestIdx, 1);
+  markUnsavedChanges();
+  renderCorners();
+  render();
+  updateMeshCountDisplay();
+}
+document.getElementById('meshPlusBtn').addEventListener('click', () => {
+  const idx = Number(document.getElementById('meshScreenSelect').value) || 0;
+  addMeshPair(idx);
+  refreshCurveUI();
+});
+document.getElementById('meshMinusBtn').addEventListener('click', () => {
+  const idx = Number(document.getElementById('meshScreenSelect').value) || 0;
+  removeMeshPair(idx);
+  refreshCurveUI();
+});
+document.getElementById('meshScreenSelect').addEventListener('change', () => {
+  updateMeshCountDisplay();
+  refreshCurveUI();
+});
+
+// ===== קימור עליון/תחתון =====
+// curveAmount הוא ערך בטווח -100..100. חיובי = קעור (האמצע נדחף מטה לקצה העליון
+// או מעלה לקצה התחתון), שלילי = קמור (הפוך).
+// העומק המקסימלי = ~12% מאורך הקצה (בכיוון Y).
+function applyCurveToEdge(corners, edge, amount) {
+  const N = corners.length;
+  if (N < 6) return; // צריך לפחות נקודת אמצע אחת
+  const half = N >> 1;
+  // edge='top' → אינדקסים 0..half-1, אם 'bot' → אינדקסים half..N-1 (בסדר הפוך)
+  let pts;
+  if (edge === 'top') {
+    pts = [];
+    for (let i = 0; i < half; i++) pts.push({i, p: corners[i]});
+  } else {
+    pts = [];
+    for (let i = N - 1; i >= half; i--) pts.push({i, p: corners[i]});
+  }
+  const first = pts[0].p, last = pts[pts.length - 1].p;
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  const edgeLen = Math.hypot(dx, dy);
+  // וקטור ניצב לקצה (פונה כלפי מטה לקצה העליון, מעלה לקצה התחתון)
+  // עבור top: נורמל פונה "פנימה" = (-dy, dx) מנורמל. עבור bot הפוך.
+  let nx = -dy / (edgeLen || 1);
+  let ny = dx / (edgeLen || 1);
+  if (edge === 'bot') { nx = -nx; ny = -ny; }
+  // עומק הקשת
+  const depth = (amount / 100) * 0.12 * edgeLen;
+  // לכל נקודה: t = position along edge (0..1). פרבולה: 4*t*(1-t) → 0 בקצוות, 1 באמצע.
+  for (let k = 0; k < pts.length; k++) {
+    const t = k / (pts.length - 1);
+    const baseX = first.x + t * dx;
+    const baseY = first.y + t * dy;
+    if (k === 0 || k === pts.length - 1) {
+      // נקודת קצה - לא משנים את ה-X (כדי לא להזיז את הפינה הפיזית), רק וודא שעל הקו
+      continue;
+    }
+    const off = 4 * t * (1 - t) * depth;
+    pts[k].p.x = baseX + nx * off;
+    pts[k].p.y = baseY + ny * off;
+  }
+}
+
+function refreshCurveUI() {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('meshScreenSelect');
+  if (!tpl || !sel) return;
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  const panel = document.getElementById('curvePanel');
+  if (!screen || screen.corners.length < 6) {
+    // אין נקודות אמצע - לא ניתן לעקם
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'flex';
+  // קרא ערכים שמורים (אם יש)
+  screen.curveTop = screen.curveTop || 0;
+  screen.curveBot = screen.curveBot || 0;
+  document.getElementById('curveTopSlider').value = screen.curveTop;
+  document.getElementById('curveBotSlider').value = screen.curveBot;
+  document.getElementById('curveTopVal').textContent = screen.curveTop;
+  document.getElementById('curveBotVal').textContent = screen.curveBot;
+}
+
+function onCurveSliderChange(edge, value) {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('meshScreenSelect');
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  if (!screen) return;
+  if (edge === 'top') screen.curveTop = value;
+  else screen.curveBot = value;
+  document.getElementById('curve' + (edge === 'top' ? 'Top' : 'Bot') + 'Val').textContent = value;
+  // החל את הקימור על הנקודות. הגישה: קודם אפשר את שתי הקשתות ביחד מתוך מצב "ישר"
+  // אבל הנקודות הקיימות אולי כבר זזו ידנית. כדי לא לבטל גרירות ידניות,
+  // נחשב מחדש רק את הנקודות שעל הקצה הזה לפי הקו הישר + הקימור.
+  applyCurveToEdge(screen.corners, edge, value);
+  markUnsavedChanges();
+  renderCorners();
+  render();
+}
+
+document.getElementById('curveTopSlider').addEventListener('input', e => {
+  onCurveSliderChange('top', parseInt(e.target.value, 10));
+});
+document.getElementById('curveBotSlider').addEventListener('input', e => {
+  onCurveSliderChange('bot', parseInt(e.target.value, 10));
+});
+document.getElementById('curveResetBtn').addEventListener('click', () => {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('meshScreenSelect');
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  if (!screen) return;
+  screen.curveTop = 0;
+  screen.curveBot = 0;
+  applyCurveToEdge(screen.corners, 'top', 0);
+  applyCurveToEdge(screen.corners, 'bot', 0);
+  refreshCurveUI();
+  markUnsavedChanges();
+  renderCorners();
+  render();
+});
+
+// ===== Sharpen UI =====
+function refreshSharpenUI() {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('sharpenScreenSelect');
+  if (!tpl || !tpl.screens || !sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  tpl.screens.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = s.label || ('מסך ' + (i + 1));
+    sel.appendChild(opt);
+  });
+  if (prev && Number(prev) < tpl.screens.length) sel.value = prev;
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  const amt = (screen && Number(screen.sharpen)) || 0;
+  document.getElementById('sharpenSlider').value = amt;
+  document.getElementById('sharpenVal').textContent = amt + '%';
+}
+document.getElementById('sharpenSlider').addEventListener('input', e => {
+  const tpl = getCurrentTemplate();
+  const sel = document.getElementById('sharpenScreenSelect');
+  const idx = Number(sel.value) || 0;
+  const screen = tpl.screens[idx];
+  if (!screen) return;
+  const v = parseInt(e.target.value, 10) || 0;
+  screen.sharpen = v;
+  document.getElementById('sharpenVal').textContent = v + '%';
+  markUnsavedChanges();
+  render();
+});
+document.getElementById('sharpenScreenSelect').addEventListener('change', refreshSharpenUI);
 
 document.getElementById('downloadBtn').addEventListener('click', () => {
   const link = document.createElement('a');
